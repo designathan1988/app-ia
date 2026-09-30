@@ -398,9 +398,20 @@ def _resolve_defeasible(ev: _Evaluator, model: Model, rules: list[Rule]) -> None
             model._add(*winner)
 
 
-def evaluate(program: Program, analysis: Analysis | None = None) -> Model:
+def evaluate(program: Program, analysis: Analysis | None = None, *,
+             reuse: Model | None = None, affected: set[PredKey] | None = None) -> Model:
+    """The perfect model of `program`.
+
+    With `reuse` and `affected` (incremental maintenance): every component with
+    no predicate in `affected` is copied from `reuse` instead of evaluated. This
+    is sound only when `affected` is closed under dependency (see
+    ``incremental.affected_by``) and `reuse` is the model of a program with the
+    same rules, since a component's content depends only on the facts of its own
+    predicates and on the components below it.
+    """
     analysis = analysis or analyze(program)
     model = Model(program, analysis)
+    model.reused_components = 0
     ev = _Evaluator(model)
     facts_by_pred: dict[PredKey, list[Atom]] = {}
     for f in program.facts:
@@ -408,6 +419,14 @@ def evaluate(program: Program, analysis: Analysis | None = None) -> Model:
     resolved: set[tuple[str, int]] = set()
 
     for ci, comp in enumerate(analysis.components):
+        if reuse is not None and affected is not None and not (comp & affected):
+            for pred in comp:
+                for atom in reuse.atoms(pred):
+                    model._add(atom, reuse.entries[atom])
+            model.indeterminate |= {a for a in reuse.indeterminate if a.pred in comp}
+            resolved |= {pred.base for pred in comp if pred.base in analysis.defeasible_of}
+            model.reused_components += 1
+            continue
         delta: dict[PredKey, set[Atom]] = {}
         for pred in comp:
             for f in facts_by_pred.get(pred, ()):

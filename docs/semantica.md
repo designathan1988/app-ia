@@ -494,13 +494,36 @@ pinguim(tweety).
 %? viaja_de_aviao(tweety) => VERDADEIRO(inferido)
 ```
 
-## 6. Limites desta versão (M1, primeira fatia)
+## 6. Conhecimento ao longo do tempo e em contextos
+
+**Contextos** (`nucleo/kb/contexts.py`), no estilo das microteorias do Cyc:
+- Os contextos formam um grafo sem ciclos: um pai é definido antes dos filhos.
+- A visão de um contexto é o seu conhecimento mais o de todos os ancestrais. Nada sobe, e nada passa entre irmãos.
+- Um filho não sobrescreve o pai: `-p` no filho, com `p` no pai, torna `p` CONTRADITORIO na visão do filho. Uma exceção intencional se escreve com regras derrotáveis e prioridade (`@aqui > @normal.`).
+- Um mundo declarado de dois jeitos na mesma linhagem, ou um rótulo definido duas vezes, é um erro.
+
+**Versões** (`nucleo/store/db.py`, SQLite):
+- Nada é sobrescrito.
+- Cada sentença guarda a transação que a afirmou e a que a retirou.
+- `contexts(as_of=t)` reconstrói exatamente o estado depois da transação `t`.
+- Uma transação é tudo ou nada: se alguma visão ficar inválida, a transação inteira é desfeita.
+
+**Manutenção incremental** (`nucleo/logic/incremental.py`):
+- Depois de inserir ou retirar fatos, só o **cone de dependência** dos predicados alterados é recalculado; os demais componentes são copiados.
+- Nos predicados derrotáveis, `p` e `-p` entram juntos no cone.
+- O resultado é idêntico à recomputação completa: mesmos átomos, mesmos custos de prova, mesmos INDETERMINADOS. Isso é verificado em sequências aleatórias de atualizações.
+
+**Conjunto mínimo de conflito** (`nucleo/logic/conflict.py`):
+- Para um átomo CONTRADITORIO, dá os fatos afirmados que, juntos, produzem `p` e `-p`.
+- O resultado é sempre *irredundante*: tirar qualquer um desfaz o conflito.
+- Quando o cone é monótono (sem `not`, `nao_consta`, agregado ou regra derrotável), o resultado é também *minimal por inclusão*, e a resposta diz qual garantia vale.
+- Um fato que só "protege" uma ausência (exemplo: `s` bloqueia `q :- not s`) aparece no conjunto, embora não esteja em nenhuma prova.
+
+## 7. Limites desta versão (M1)
 
 **Ainda não implementado:**
-- contextos e versões;
-- manutenção incremental;
-- conjunto mínimo de conflito;
-- regras aprendidas (HIPOTÉTICO).
+- regras aprendidas (HIPOTÉTICO), que chegam com a camada de aprendizado;
+- mudança de regras de forma incremental: um conjunto de regras alterado é recalculado do zero.
 
 **Limite do checador:** ele verifica a *existência* das provas, mas não a
 *minimalidade*. O qualificador `presumido` ("não existe prova limpa") é

@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..kb.syntax import Atom
+from .conflict import minimal_conflict
 from .engine import Model
 from .proof import proof_tree
 
@@ -78,6 +79,10 @@ def explain(model: Model, atom: Atom) -> dict:
         out["prova"] = proof_tree(model, atom)
     if st.value == FALSO and st.qualifier != MUNDO_FECHADO or st.value == CONTRADITORIO:
         out["prova_negacao"] = proof_tree(model, neg)
+    if st.value == CONTRADITORIO:
+        c = minimal_conflict(model, atom)
+        out["conflito_minimo"] = {"fatos": [str(f) for f in c["fatos"]], "regras": c["regras"],
+                                  "minimalidade": c["minimalidade"]}
     if st.value == FALSO and st.qualifier == MUNDO_FECHADO:
         out["motivo"] = f"{atom.pred.name}/{atom.pred.arity} é de mundo fechado e {atom} não é derivável"
     if st.value == INDETERMINADO:
