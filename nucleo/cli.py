@@ -83,6 +83,28 @@ def main(argv: list[str]) -> int:
                 lines = [f"  [{h.source}] {h.title} — {h.summary[:110]}\n      {h.url}" for h in hits[:10]]
                 print("\n".join(lines) or "  nada encontrado", flush=True)
                 continue
+            if " entidade " in f" {text.lower()} ":
+                from .gen.build import verify
+                from .lang.describe_model import DescriptionError, model_from_text
+
+                try:
+                    model = model_from_text(text)
+                except DescriptionError as e:
+                    print(f"  ? {e}", flush=True)
+                    continue
+                target = out.parent / "projeto-gerado" if out.name == "site" else out / "projeto-gerado"
+                import shutil
+
+                shutil.rmtree(target, ignore_errors=True)
+                r = verify(model, workdir=str(target))
+                (target / "modelo.json").write_text(json.dumps(model, ensure_ascii=False, indent=1), encoding="utf-8")
+                ok = "✔ verificado" if r["verificado"] else "✘ NÃO verificado"
+                dif = r.get("diferencial", {})
+                print(f"  {ok}: {r['arquivos']} arquivos, {r['linhas']} linhas em {target.resolve()}\n"
+                      f"    tsc: {len(r['tsc'])} problema(s); testes TS: {r.get('testes_ts')}; testes Python: "
+                      f"{r['testes_py']}; diferencial: {dif.get('valores', 0)} valores, "
+                      f"{dif.get('divergencias', '?')} divergência(s)", flush=True)
+                continue
             if code_root:
                 from .lang.code_questions import CodeIndex, answer, is_code_question
 
