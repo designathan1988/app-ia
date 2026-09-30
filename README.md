@@ -35,6 +35,29 @@ explícito, raciocínio com prova, busca, aprendizado estrutural e verificação
 | **Versões em SQLite:** log de transações, `as_of(t)`, tudo ou nada | `tests/test_store.py`: todo estado passado reconstruído, também depois de reabrir o arquivo | feito |
 | **Manutenção incremental** pelo cone de dependência | `tests/test_incremental.py`: igual à recomputação (átomos, custos, INDETERMINADOS) em sequências aleatórias; ~78% dos componentes reaproveitados; dois defeitos injetados foram detectados | feito — **portão M1** |
 
+## Usar
+
+Conversar com o builder-6 em português, sobre um documento seu (ou um novo):
+
+```
+C:\ctv
+\Scripts\python.exe -m nucleo.cli meu-projeto.json --saida=site
+```
+
+Exemplos de pedidos:
+- `insira uma seção na página`
+- `insira um título com o texto "Café Aurora" na seção Topo`
+- `defina o fundo da seção Topo como #1e293b`
+- `mude a cor do texto do botão para #22d3ee ao passar o mouse`
+- `defina o display da seção Topo como flex no celular`
+
+Para ensinar uma palavra: `centralizar significa definir o alinhamento do texto como center`.
+
+Comandos do terminal: `desfazer`, `salvar`, `exportar`, `esquecer <termo>`, `sair`.
+
+O documento é salvo no formato do próprio builder-6 a cada mudança. O que não for entendido é perguntado, nunca
+executado.
+
 ## Rodar
 
 ```
