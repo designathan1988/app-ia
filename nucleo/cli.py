@@ -8,6 +8,7 @@ definir o alinhamento do texto como center"), or one of:
     salvar            write the document (also done after every change, when a file was given)
     exportar          write the site (HTML/CSS/JS) into the output folder
     esquecer <termo>  forget a taught word
+    pesquise <termo>  technical search: MDN, the local web-platform reference, npm
     desfazer          go back to the state before the last change
     sair
 
@@ -67,6 +68,22 @@ def main(argv: list[str]) -> int:
                     doc_path.write_text(json.dumps(s.document()["document"], ensure_ascii=False, indent=1),
                                         encoding="utf-8")
                     print(f"  salvo em {doc_path}", flush=True)
+                continue
+            first = text.split()[0].lower() if text.split() else ""
+            from .lang.morph import lemmas as _lemmas
+
+            if any(l in ("pesquisar", "procurar", "buscar") for l in _lemmas(first, "V")):
+                from .web.fetcher import Fetcher
+                from .web.search import search
+
+                query = text.split(None, 1)[1] if len(text.split()) > 1 else ""
+                query = query[6:] if query.lower().startswith("sobre ") else query
+                fetcher = Fetcher(pathlib.Path(__file__).resolve().parents[1] / "data" / "cache" / "web")
+                hits = search(query, fetcher)
+                print("
+".join(f"  [{h.source}] {h.title} — {h.summary[:110]}
+      {h.url}" for h in hits[:10])
+                      or "  nada encontrado", flush=True)
                 continue
             if code_root:
                 from .lang.code_questions import CodeIndex, answer, is_code_question

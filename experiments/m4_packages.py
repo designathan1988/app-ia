@@ -37,7 +37,7 @@ def main():
         names += [(eco, n, "grafia errada") for n in MISSPELLED[eco]]
         names += [(eco, "".join(pseudo_word(rng) for _ in range(2)) + "zq", "inventado") for _ in range(4)]
     tmp = tempfile.mkdtemp()
-    f = Fetcher(pathlib.Path(tmp) / "web", min_delay=1.0)
+    f = Fetcher(pathlib.Path(tmp) / "web", min_delay=1.0, respect_robots=True)
     claims = Claims(Store(str(pathlib.Path(tmp) / "kb.db")))
     c = collections.Counter()
     exists_by_registry = {}

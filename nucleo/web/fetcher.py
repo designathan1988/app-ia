@@ -2,7 +2,8 @@
 
 The fetcher follows these rules:
 
-* It checks robots.txt (RFC 9309, see ``robots.py``) before every request, and caches it for 24 h.
+* With ``respect_robots=True`` it checks robots.txt (RFC 9309, see ``robots.py``) before every request, cached for
+  24 h. By the user's decision the default is not to obey it.
 * It never bypasses a bot challenge. A response that is an interstitial challenge page is reported as "bloqueado",
   not parsed.
 * It waits at least ``min_delay`` seconds between requests to the same host.
@@ -46,7 +47,10 @@ class Response:
 
 class Fetcher:
     def __init__(self, cache_dir: str | pathlib.Path, min_delay: float = 1.0, max_bytes: int = 5_000_000,
-                 opener=None, clock=time.monotonic, sleep=time.sleep) -> None:
+                 opener=None, clock=time.monotonic, sleep=time.sleep, respect_robots: bool = False) -> None:
+        # the user's decision (2026-09-30): robots.txt is not obeyed by default; pass respect_robots=True to obey it.
+        # Rate limiting, identification and never bypassing a bot challenge stay in force either way.
+        self.respect_robots = respect_robots
         self.cache = pathlib.Path(cache_dir)
         self.cache.mkdir(parents=True, exist_ok=True)
         self.min_delay = min_delay
@@ -95,7 +99,7 @@ class Fetcher:
     def get(self, url: str, headers: dict | None = None) -> Response:
         parts = urlsplit(url)
         origin = f"{parts.scheme}://{parts.netloc}"
-        if not self._rules(origin).allowed(USER_AGENT, url):
+        if self.respect_robots and not self._rules(origin).allowed(USER_AGENT, url):
             self.log.append((url, "robots", 0))
             return Response(url, 0, b"", {}, "robots")
         cp = self._cache_path(url)

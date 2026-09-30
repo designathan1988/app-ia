@@ -115,7 +115,7 @@ def test_fetcher_obeys_robots_caches_and_waits(tmp_path):
         "https://b.test/robots.txt": (503, b"", {}),
     })
     clock = Clock()
-    f = Fetcher(tmp_path, min_delay=1.0, opener=web, clock=clock, sleep=clock.sleep)
+    f = Fetcher(tmp_path, min_delay=1.0, opener=web, clock=clock, sleep=clock.sleep, respect_robots=True)
     assert f.get("https://a.test/secreto/x").origin == "robots"
     r1 = f.get("https://a.test/dado")
     r2 = f.get("https://a.test/dado")
@@ -131,7 +131,7 @@ def test_fetcher_reports_a_challenge_and_never_parses_it(tmp_path):
         "https://c.test/p": (200, b"<html><title>Client Challenge</title></html>", {}),
     })
     clock = Clock()
-    r = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep).get("https://c.test/p")
+    r = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep, respect_robots=True).get("https://c.test/p")
     assert r.origin == "bloqueado" and r.body == b""
 
 
@@ -145,7 +145,7 @@ def test_registries_parse_structured_answers(tmp_path):
         "https://pypi.org/rss/project/algo/releases.xml": (200, rss, {}),
     })
     clock = Clock()
-    f = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep)
+    f = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep, respect_robots=True)
     a = npm(f, "left-pad")
     b = npm(f, "nao-existe-zz")
     c = pypi(f, "algo")
@@ -174,3 +174,11 @@ def test_claims_need_verification_and_approval(tmp_path):
     with pytest.raises(ValueError):
         claims.approve(['pacote_existe("npm", "inventado").'], by="jonathan")
     assert KNOWN in claims.store.contexts()
+
+
+def test_local_reference_search_finds_the_web_platform_entry():
+    from nucleo.web.search import local
+
+    hits = local("grid template areas")
+    assert hits and any(h.title.endswith("grid-template-areas") for h in hits[:3])
+    assert any(h.source == "webref" and "none | <string>+" in h.summary for h in hits)
