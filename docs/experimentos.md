@@ -201,3 +201,58 @@ A meta do §11 era P ≥ 99,5% / C ≥ 97% e "VERDADEIRO errado" ≤ 0,1%.
   manutenção por tupla (DRed / contagem), prevista para o porte em Rust (R1).
 - **Membros de objeto** (`a.b`) dependem de tipos. Eles não são resolvidos por essas regras. O plano é trazê-los como
   fatos do compilador, com proveniência.
+
+## M4 — Conhecimento de APIs e da web, sem chave e sem custo
+
+### Diferenças de API entre versões reais, julgadas pelo compilador
+
+- **Superfície de API** (`bridge/code/api_surface.mjs`): as exportações do módulo de tipos de cada pacote, lidas pelo
+  compilador TypeScript, com espaço (valor, tipo, ambos) e assinatura.
+- **Diferença por regras** (`nucleo/apis/surface.py`): `indisponivel(N, espaço)`, `novo(N, espaço)`,
+  `assinatura_mudou(N)`.
+- **Juiz:** para cada nome, um arquivo de sonda que o importa no seu espaço é **compilado de verdade** contra a outra
+  versão.
+- **Pares:** 35 pacotes com tipos, instalados em versões diferentes nos projetos locais. Por exemplo: vitest 4.1 → 5.0,
+  keyv 4 → 5, magic-string 0.30 → 1.4, @types/node 24 → 26, tinybench 2 → 6, typescript 5.9 → 7.0.
+
+| Rodada | Acordo com o compilador | O que mudou |
+|---|---|---|
+| 1 | 96,58% | — |
+| 2 | 98,99% | sonda: erro de aridade genérica (TS2314/2707) não significa ausência |
+| 3 | 99,53% | extrator: `export type { Classe }` exporta só o tipo; `export =` oferece `default` |
+| 4 | **99,98% (4.446 / 4.447)** | sonda: namespace usado como tipo (TS2709) não significa ausência |
+
+A divergência restante é o `default` sintético do `typescript` 7 (pacote nativo em Go).
+
+### Web sem chave: robots.txt, registros e "aprovar antes de aprender"
+
+- **Buscador** (`nucleo/web/fetcher.py`):
+  - lê o `robots.txt` antes de qualquer requisição (RFC 9309, com os curingas `*` e `$`);
+  - identifica-se, espera ≥ 1 s por host e usa GET condicional com cache;
+  - tem limite de tamanho;
+  - quando recebe uma página de desafio anti-robô, registra "bloqueado" e **não a contorna**.
+- **Registros** (`nucleo/web/registries.py`): primeiro o que está instalado; depois o npm (JSON de metadados) e o PyPI
+  (feed RSS de versões).
+- **Alegações** (`nucleo/web/claims.py`):
+  - toda alegação entra no contexto `web_nao_verificada`;
+  - regras decidem a verificação: fonte estruturada reproduzida, ou duas fontes de sites independentes;
+  - só a **aprovação do usuário** promove a alegação ao contexto `conhecimento`;
+  - só um pacote cuja existência é conhecimento pode ser sugerido.
+
+**Resultado ao vivo** (`experiments/m4_packages.py`, 33 requisições):
+- 10 pacotes reais confirmados e sugeríveis;
+- 13 nomes inventados ou com grafia errada de pacotes populares recusados pelo registro, **0 sugeridos**;
+- **0 violações** de robots.txt.
+
+**Descobertas sobre as fontes** (detalhes em `docs/achados.md`):
+- **PyPI:** o `robots.txt` proíbe a API JSON (`/pypi/*/json`) e o `/simple/`, e as páginas de projeto respondem a robôs
+  com um desafio em JavaScript. Resta o feed RSS, que é permitido.
+- **deps.dev:** a API (`api.deps.dev`) proíbe tudo no `robots.txt`.
+- **Python:** o `urllib.robotparser` da biblioteca padrão ignora os curingas da RFC 9309 e diria "permitido" para a
+  API JSON do PyPI. Por isso o buscador usa o seu próprio avaliador, testado contra a tabela de exemplos publicada pelo
+  Google.
+
+**Pendências do M4:**
+- **SearXNG local:** exige instalar Docker ou o serviço; é decisão do usuário.
+- **Fatos de BCD/webref:** os dados já estão no `node_modules` do builder. Entram com o M6, onde servem para validar o
+  CSS gerado.
