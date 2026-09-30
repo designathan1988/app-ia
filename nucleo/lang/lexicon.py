@@ -112,6 +112,11 @@ def load(root: str | None = None) -> list[Entry]:
                 css_names.add(name)
     for name in sorted(css_names):
         out.append(Entry("propriedade", name, name, (name,)))
+    # phrases the user taught ("cor de fundo significa fundo"): another label for an entity already grounded
+    from .learned import phrases
+
+    for phrase, d in phrases().items():
+        out.append(Entry(d["tipo"], d["entidade"], phrase, lemma_seq(phrase)))
     return out
 
 

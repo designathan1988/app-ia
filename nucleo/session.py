@@ -46,6 +46,10 @@ class Session:
     def ask(self, text: str) -> Answer:
         doc = self.document()
         u = understand(text, World.from_document(doc["document"], doc["selection"]))
+        if u.decision == "aprendido":
+            a = Answer(text, u.decision, u.message, [], True)
+            self.history.append(a)
+            return a
         if u.decision != "executar":
             a = Answer(text, u.decision, u.message, [], False)
             self.history.append(a)

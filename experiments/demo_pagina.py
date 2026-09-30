@@ -25,8 +25,13 @@ PEDIDOS = [
     "coloque 18px no tamanho da fonte do parágrafo",
     "mude a cor do texto do botão para #22d3ee ao passar o mouse",
     "defina o display da seção Destaque como flex no celular",
-    # the system should not carry these out
+    # an unknown verb: it asks; once taught, it is used
     "centralize o título",
+    "centralizar significa definir o alinhamento do texto como center",
+    "centralize o título",
+    "cor de fundo significa fundo",
+    "mude a cor de fundo do parágrafo para #fde68a",
+    # the system should not carry these out
     "insira um parágrafo na seção Destaque e depois apague o botão",
     "blorfe o botão",
     "defina a margem superior do parágrafo",
@@ -35,6 +40,10 @@ PEDIDOS = [
 
 if __name__ == "__main__":
     low_priority()
+    from nucleo.lang import learned  # noqa: E402
+
+    for w in ("centralizar", "cor de fundo"):
+        learned.forget(w)  # start from the untaught vocabulary, so the demo shows the teaching
     out = pathlib.Path(__file__).resolve().parents[1] / "data" / "demo"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()

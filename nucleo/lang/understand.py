@@ -31,7 +31,7 @@ import pathlib
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from . import lexicon
+from . import learned, lexicon
 from .morph import lemmas as morph_lemmas
 from .syntax import load_models
 from .tokenize import is_literal, literal_value, tokenize
@@ -120,10 +120,11 @@ def _subtree(tokens: list[Token], root: int) -> list[Token]:
 
 
 def _frame_verb(form: str) -> str | None:
-    """The lemma of a frame verb this form can be, per MorphoBr, whatever tag the tagger gave it ("ajuste": a noun
-    to the tagger, but also the subjunctive of "ajustar")."""
+    """The lemma of a frame verb (or a verb the user taught) this form can be, per MorphoBr, whatever tag the tagger
+    gave it ("ajuste": a noun to the tagger, but also the subjunctive of "ajustar")."""
+    taught = learned.verbs()
     for lemma in morph_lemmas(form, "V"):
-        if any(lemma in f["verbos"] for f in FRAMES["quadros"]):
+        if any(lemma in f["verbos"] for f in FRAMES["quadros"]) or lemma in taught:
             return lemma
     return None
 
@@ -736,8 +737,55 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
     return f"entendi o verbo «{pred.lemma}», mas não o que ele deve alterar"
 
 
-def understand(text: str, world: World) -> Understanding:
+def _definition(tokens: list[Token], text: str, world: World, by: str) -> Understanding | None:
+    """ "X significa Y": teach X. Accepted only when Y is understood (a verb's definition must be a request the
+    core language understands; a phrase's must name an entity the lexicon grounds)."""
+    k = next((i for i, t in enumerate(tokens) if "significar" in morph_lemmas(t.form, "V")), None)
+    if k is None or k == 0 or k == len(tokens) - 1:
+        return None
+    x = " ".join(t.form for t in tokens[:k]).strip().lower()
+    y = " ".join(t.form for t in tokens[k + 1:]).strip().strip(".")
+    first = tokens[0].form.lower()
+    if k == 1 and first in [lem for lem, tags in _analyses(first) if tags.startswith("V+INF")]:
+        probe = World(world.nodes, world.selection[:1] or list(world.nodes)[:1], world.layer)
+        rs = _readings(analyse(y), probe)
+        if not rs or rs[0].unknown_verb or rs[0].cost > LIMIT:
+            return Understanding(text, tokens, [], "nao_entendi",
+                                 f"Não aprendi «{first}»: não entendi a definição «{y}».")
+        learned.add_verb(first, y, text, by)
+        return Understanding(text, tokens, [], "aprendido",
+                             f"Aprendi: «{first}» = «{y}» (sobre o elemento que você disser).")
+    seq = lexicon.lemma_seq(y)
+    hits = [e for e in lexicon.load() if e.lemmas == seq and e.kind in KINDS]
+    if not hits:
+        return Understanding(text, tokens, [], "nao_entendi",
+                             f"Não aprendi «{x}»: «{y}» não é algo que eu conheça no builder.")
+    learned.add_phrase(x, hits[0].kind, hits[0].id, text, by)
+    return Understanding(text, tokens, [], "aprendido", f"Aprendi: «{x}» = «{hits[0].label}» ({hits[0].id}).")
+
+
+def _analyses(word: str):
+    from .morph import analyses
+
+    return analyses(word)
+
+
+def understand(text: str, world: World, by: str = "usuario") -> Understanding:
     tokens = analyse(text)
+    taught = _definition(tokens, text, world, by)
+    if taught is not None:
+        return taught
+    pred = _predicate(tokens)
+    definition = learned.verbs().get(pred.lemma) if pred is not None else None
+    if definition and not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
+        # a taught verb: its definition, applied to what this sentence says after the verb
+        rest = " ".join(t.form for t in tokens if t.i > pred.i and t.upos != "PUNCT")
+        expanded = f"{definition['definicao']} de {rest}" if rest else definition["definicao"]
+        u = understand(expanded, world, by)
+        u.text = text
+        if u.message and u.decision == "executar":
+            u.message = f"{u.message} (pois «{pred.lemma}» = «{definition['definicao']}»)"
+        return u
     readings = _readings(tokens, world)
     if not readings or readings[0].cost > LIMIT:
         why = "; ".join(readings[0].assumptions) if readings else _why_nothing(tokens, world)

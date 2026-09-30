@@ -207,7 +207,9 @@ class Planner:
                 focus = item.get("id") if isinstance(item.get("id"), str) else item.get("parent")
                 if isinstance(focus, str) and selection != [focus]:
                     prefixes.append([{"command": "selection.select", "args": {"target": focus}}])
-                if item["kind"] == "style" and (item["breakpoint"], item["state"]) != ("desktop", "base"):
+                if item["kind"] == "style":
+                    # the editor may be on another layer (a previous request switched it): also try putting it on
+                    # the layer the style is for
                     layer = [{"command": "view.setBreakpoint", "args": {"breakpoint": item["breakpoint"]}},
                              {"command": "view.setStyleState", "args": {"state": item["state"]}}]
                     prefixes += [layer + p for p in list(prefixes)]
