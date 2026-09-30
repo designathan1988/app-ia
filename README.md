@@ -55,7 +55,7 @@ Para ensinar uma palavra: `centralizar significa definir o alinhamento do texto 
 Dois pedidos na mesma frase ("insira uma seção na página e depois renomeie a seção para Topo") são feitos juntos,
 ou nenhum é feito.
 
-Com `--codigo=C:\Codex-Shared\deepseekuilder-6`, ele também responde perguntas sobre o código TypeScript:
+Com `--codigo=C:/Codex-Shared/deepseek/builder-6`, ele também responde perguntas sobre o código TypeScript:
 `onde está definido createStore?`, `quem usa validateDocument?`, `o que é afetado se eu mudar siteFiles?`,
 `quais exportações não são usadas?`.
 
