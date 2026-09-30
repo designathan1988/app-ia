@@ -1,9 +1,9 @@
 """Package facts from structured, key-free sources: first what is installed locally, then the public registries.
 
 * **npm:** ``registry.npmjs.org/<name>`` (package metadata JSON; the registry has no robots.txt restrictions).
-* **PyPI:** the releases RSS feed ``pypi.org/rss/project/<name>/releases.xml``. robots.txt forbids the JSON API
-  (``/pypi/*/json``) and the ``/simple/`` index, and project pages answer bots with a JavaScript challenge that
-  is never bypassed. The feed is allowed and structured (versions and dates).
+* **PyPI:** the JSON API ``pypi.org/pypi/<name>/json`` (the fetcher does not obey robots.txt by the user's
+  decision), with the releases RSS feed as fallback. Project HTML pages answer bots with a JavaScript challenge,
+  which is never bypassed; the JSON API does not need them.
 
 Every answer carries where it came from, so a claim built on it can be traced and re-checked.
 """
@@ -69,8 +69,20 @@ def npm(fetcher: Fetcher, name: str) -> PackageInfo:
 
 
 def pypi(fetcher: Fetcher, name: str) -> PackageInfo:
+    """PyPI's JSON API (versions, summary); its releases RSS feed when the JSON answer is not usable."""
     if not _PYPI_NAME.match(name):
         return PackageInfo("pypi", name, False, why="nome inválido para o PyPI")
+    api = f"https://pypi.org/pypi/{quote(name)}/json"
+    r = fetcher.get(api)
+    if r.status == 404:
+        return PackageInfo("pypi", name, False, source=api, why="registro respondeu 404")
+    if r.status == 200:
+        try:
+            j = r.json()
+            return PackageInfo("pypi", name, True, (j.get("info") or {}).get("version"),
+                               list((j.get("releases") or {}).keys()), api)
+        except ValueError:
+            pass
     url = f"https://pypi.org/rss/project/{quote(name)}/releases.xml"
     r = fetcher.get(url)
     if r.status == 404:

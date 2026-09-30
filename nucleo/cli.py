@@ -80,10 +80,8 @@ def main(argv: list[str]) -> int:
                 query = query[6:] if query.lower().startswith("sobre ") else query
                 fetcher = Fetcher(pathlib.Path(__file__).resolve().parents[1] / "data" / "cache" / "web")
                 hits = search(query, fetcher)
-                print("
-".join(f"  [{h.source}] {h.title} — {h.summary[:110]}
-      {h.url}" for h in hits[:10])
-                      or "  nada encontrado", flush=True)
+                lines = [f"  [{h.source}] {h.title} — {h.summary[:110]}\n      {h.url}" for h in hits[:10]]
+                print("\n".join(lines) or "  nada encontrado", flush=True)
                 continue
             if code_root:
                 from .lang.code_questions import CodeIndex, answer, is_code_question

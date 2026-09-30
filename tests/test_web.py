@@ -143,15 +143,20 @@ def test_registries_parse_structured_answers(tmp_path):
         "https://registry.npmjs.org/left-pad": (200, b'{"dist-tags":{"latest":"1.3.0"},"versions":{"1.3.0":{}}}', {}),
         "https://pypi.org/robots.txt": (200, b"User-agent: *\nDisallow: /pypi/*/json\n", {}),
         "https://pypi.org/rss/project/algo/releases.xml": (200, rss, {}),
+        "https://pypi.org/pypi/algo/json": (503, b"", {}),  # JSON unusable: the RSS feed answers
+        "https://pypi.org/pypi/outro/json": (200, b'{"info": {"version": "3.1"}, "releases": {"3.0": [], "3.1": []}}', {}),
     })
     clock = Clock()
-    f = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep, respect_robots=True)
+    f = Fetcher(tmp_path, opener=web, clock=clock, sleep=clock.sleep)  # the default: robots.txt not obeyed
     a = npm(f, "left-pad")
     b = npm(f, "nao-existe-zz")
     c = pypi(f, "algo")
     assert (a.exists, a.latest, b.exists, c.exists, c.latest, c.versions) == (True, "1.3.0", False, True, "2.0.0",
                                                                               ["2.0.0", "1.9.1"])
     assert npm(f, "Nome Inválido").exists is False
+    d = pypi(f, "outro")
+    assert (d.exists, d.latest, d.versions) == (True, "3.1", ["3.0", "3.1"])
+    assert pypi(f, "nao-existe-zz").exists is False  # JSON 404
     assert lookup(None, "pypi", "pytest").source.startswith("local:")  # installed: answered locally
 
 
