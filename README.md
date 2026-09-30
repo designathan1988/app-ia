@@ -41,6 +41,20 @@ explícito, raciocínio com prova, busca, aprendizado estrutural e verificação
 
 ## Usar
 
+### No navegador
+
+```
+C:\ctv
+\Scripts\python.exe C:\Codex-Shared
+ucleoun_web.py --codigo=C:/Codex-Shared/deepseek/builder-6
+```
+
+Abra http://localhost:8790. A tela tem a conversa à esquerda, a pré-visualização da página à direita, exemplos
+clicáveis e botões para desfazer, exportar e baixar o documento. Cada pedido leva de ~0,05 a 0,4 s. A primeira pergunta
+sobre código lê o projeto uma vez (~20 s).
+
+### No terminal
+
 Conversar com o builder-6 em português, sobre um documento seu (ou um novo):
 
 ```
