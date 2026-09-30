@@ -21,9 +21,10 @@ def world(tmp_path, monkeypatch):
 
 
 def test_a_taught_verb_means_its_definition(world):
-    assert understand("centralize o título Title", world).decision == "perguntar"
-    assert understand("centralizar significa definir o alinhamento do texto como center", world).decision == "aprendido"
-    u = understand("centralize o título Title", world)
+    # "realçar" has no meaning of its own here (no frame, no command label, no participle naming a value)
+    assert understand("realce o título Title", world).decision == "perguntar"
+    assert understand("realçar significa definir o alinhamento do texto como center", world).decision == "aprendido"
+    u = understand("realce o título Title", world)
     assert u.decision == "executar"
     assert u.best.constraints == [{"kind": "style", "id": "n-title", "breakpoint": "desktop", "state": "base",
                                    "property": "text-align", "value": "center"}]

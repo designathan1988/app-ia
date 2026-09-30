@@ -331,6 +331,44 @@ A divergência restante é o `default` sintético do `typescript` 7 (pacote nati
   Antes dessa rodada, os cenários 301+ davam top-1 57,0% e **12,0% de erro silencioso**.
 - As variantes com nomes inventados e com frases novas foram geradas depois de todos os ajustes.
 
+### M5b — Frases livres: significado vindo de fontes, não de frases
+
+Uma sondagem com frases livres escritas por mim (`experiments/m5_natural.py`: 25 pedidos sobre uma página pequena,
+cada um desfeito depois) mostrou onde faltava mecanismo. Nenhuma frase foi tratada como caso especial: cada correção
+é um mecanismo geral, com uma fonte externa de significado.
+
+| Mecanismo | Fonte do significado | Exemplo |
+|---|---|---|
+| Verbos que nomeiam comandos do builder | manifesto (comando que age no elemento e edita o documento) + rótulo pt-BR do catálogo; sinônimos pelas traduções do rótulo em inglês (Wiktionary) | "duplique o botão", "oculte/esconda o parágrafo", "mova o título para cima" |
+| Verbo cujo particípio nomeia um valor | MorphoBr (particípio) + léxico de valores | "centralize o título" (centralizado), "deixe o parágrafo justificado" |
+| Nomes de valores em português | traduções do Wiktionary da palavra-chave CSS; descrições da MDN pt-BR; rótulos do catálogo; palavras-chave da gramática do W3C, seguindo tipos e referências entre propriedades | "em itálico", "fundo azul", "negrito", "à direita" |
+| Tipo do valor escolhe a propriedade | `valueType` do manifesto + gramática do W3C | "mude a fonte do título para 32px" → tamanho da fonte |
+| Pressuposição do definido (DRT) | o documento | "o título", quando há um título, não é um título novo |
+| Nome próprio não é valor | a forma da palavra (maiúscula no meio da frase) | "troque o texto por Café Serra" |
+| Casos do valor por quadro | `frames.json` | "em maiúsculas" não vira o texto do botão |
+
+**Sondagem:** antes, 10 de 25 executados, com 2 execuções erradas ("coloque o título em caixa alta" inseria um
+título; "coloque o texto do botão em maiúsculas" trocava o texto). Depois, 18 de 25 executados, nenhuma execução
+errada; os outros 7 perguntam ou dizem o que não entenderam.
+
+**Efeito na bateria do M5** (mesmos geradores, sem mudar os pedidos):
+
+| Variante | Pedidos | top-1 antes | top-1 depois | Erro silencioso |
+|---|---|---|---|---|
+| frases originais | 667 | 86,1% | **91,6%** | 0,0% |
+| … cenários 301+ (validação) | 410 | 82,4% | 87,8% | 0,0% |
+| nomes de nós inventados | 574 | — | **92,5%** | 0,0% |
+| frases novas (outra semente) | 663 | — | **91,1%** | 0,0% |
+
+O "antes" é a primeira medida desta rodada. Parte do ganho veio de defeitos achados pela bateria: "por favor" lido
+como o verbo "pôr"; "200%" partido em dois; palavras-chave que também nomeiam uma propriedade ("clip"); rótulos de
+propriedade que atravessam uma preposição ("espaçamento entre letras"); um estado ("no estado ativo") que dava por
+explicado o resto do trecho.
+
+**Honestidade:** a sondagem desfaz cada pedido, e isso ensinava ao sistema, pelo "desfazer", que o usuário rejeitava
+as leituras. As contagens de desfeito geradas assim foram zeradas, e a sondagem e os testes agora usam arquivos de
+preferência e vocabulário temporários (`tests/conftest.py`).
+
 **Limites:**
 - **Frases de um só pedido.** Uma frase com "e também" não é executada pela metade.
 - **Vocabulário do catálogo.** "Cor de fundo" não é reconhecida, porque o builder chama `background-color` de "Fundo".

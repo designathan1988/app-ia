@@ -143,3 +143,32 @@ def test_general_mechanisms(aurora, text, expected):
     assert u.decision == "executar", u.message
     c = u.best.constraints[0]
     assert {k: c.get(k) for k in expected} == expected, (text, c)
+
+
+@pytest.mark.parametrize("text, expected", [
+    # verbs grounded in the builder's own command labels (pt-BR catalog + manifest)
+    ("duplique o parágrafo Intro", {"kind": "command", "command": "element.duplicate", "id": "n-intro"}),
+    ("oculte o parágrafo Intro", {"kind": "command", "command": "element.toggleHidden", "id": "n-intro"}),
+    ("mova o parágrafo Intro para cima", {"kind": "command", "command": "element.moveUp", "id": "n-intro"}),
+    # a verb whose participle names a value ("centralizado" -> text-align: center)
+    ("centralize o título Title", {"kind": "style", "property": "text-align", "value": "center"}),
+    # an unquoted new text after "para"/"por", even when the tagger reads it as a verb
+    ("mude o texto do parágrafo Intro para Comprar", {"kind": "field", "field": "text", "value": "Comprar"}),
+    ("troque o texto do título Title por Café Serra", {"kind": "field", "field": "text", "value": "Café Serra"}),
+    # the value's type tells which property of the family was meant
+    ("mude a fonte do título Title para 32px", {"kind": "style", "property": "font-size", "value": "32px"}),
+    # a color named in Portuguese, left at the end of the owner's phrase
+    ("deixe o fundo da seção Hero azul", {"kind": "style", "id": "n-hero", "property": "background-color",
+                                         "value": "blue"}),
+])
+def test_grounded_meanings(text, expected):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", (text, u.message)
+    c = u.best.constraints[0]
+    assert {k: c.get(k) for k in expected} == expected, (text, c)
+
+
+def test_definite_phrase_is_not_a_new_element():
+    """ "o título" when a title exists presupposes that title (DRT): it is never silently read as inserting one."""
+    u = understand("coloque o título Title em caixa alta", World.from_document(load_fixture("aurora"), []))
+    assert not (u.decision == "executar" and u.best.constraints[0]["kind"] == "added"), u.message

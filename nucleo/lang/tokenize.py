@@ -17,7 +17,7 @@ _TOKEN = re.compile(
     r'"[^"]*"|“[^”]*”|\'[^\']*\'|'  # quoted literals
     r"#[0-9a-fA-F]{3,8}\b|"  # hex colours
     r"\b[a-zA-Z][\w-]*\((?:[^()]|\([^()]*\))*\)|"  # CSS functions, one nesting level: blur(4px), calc(1px + var(--x))
-    r"-?\d+(?:[.,]\d+)?(?:px|rem|em|vh|vw|%|s|ms|fr|deg)?\b|"  # numbers and lengths
+    r"-?\d+(?:[.,]\d+)?(?:%|(?:px|rem|em|vh|vw|s|ms|fr|deg)?\b)|"  # numbers and lengths ("%" has no word end)
     r"[\wÀ-ÿ]+(?:-[\wÀ-ÿ]+)*|"  # words (hyphenated kept whole: padding-top, guarda-chuva)
     r"[^\s\w]"  # punctuation
 )

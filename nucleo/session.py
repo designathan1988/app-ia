@@ -79,6 +79,8 @@ class Session:
             return a
         if any(str(c.get("type", "")).startswith("estrutura:") for c in u.best.constraints):
             return self._build_structure(text, u)
+        if any(c["kind"] == "command" for c in u.best.constraints):
+            return self._run_command(text, u)
         r = self.planner.solve_constraints(self.state, u.best.constraints)
         if not r.solved:
             a = Answer(text, "sem_plano", f"Entendi «{u.message}», mas não achei comandos que façam isso.", [], False)
@@ -94,6 +96,32 @@ class Session:
             a = Answer(text, "recusado", f"O builder rejeitou o resultado: {problems[:1]}", cmds, False)
         else:
             self.state = st
+            a = Answer(text, "executado", u.message, cmds, True)
+            from .lang import preferences
+
+            self.last_reading = (u.best.verb, u.best.frame)
+            preferences.kept(*self.last_reading)
+        self.history.append(a)
+        return a
+
+    def _run_command(self, text: str, u) -> Answer:
+        """A verb that labels a builder command: select the element and run the command. The result must change the
+        document and pass the builder's validator; a flag the element already has is left as it is."""
+        c = next(c for c in u.best.constraints if c["kind"] == "command")
+        if c.get("already"):
+            a = Answer(text, "executado", f"{u.message} Nada a fazer.", [], True)
+            self.history.append(a)
+            return a
+        seq = [{"command": "selection.select", "args": {"target": c["id"]}}, {"command": c["command"], "args": {}}]
+        res = self.b.call("try", state=self.state, candidates=[{"sequence": seq}], keep=True)["results"][0]
+        cmds = [s["command"] for s in seq]
+        if res["status"] != "done" or not res.get("changed"):
+            why = res.get("refusal") or res.get("reason") or res["status"]
+            a = Answer(text, "recusado", f"O builder recusou «{c['label']}»: {why}", cmds, False)
+        elif res.get("problems") or self.b.validate(self.b.call("stateOf", state=res["state"])["document"]):
+            a = Answer(text, "recusado", "O builder rejeitou o resultado.", cmds, False)
+        else:
+            self.state = res["state"]
             a = Answer(text, "executado", u.message, cmds, True)
             from .lang import preferences
 
