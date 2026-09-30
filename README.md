@@ -40,8 +40,7 @@ explícito, raciocínio com prova, busca, aprendizado estrutural e verificação
 Conversar com o builder-6 em português, sobre um documento seu (ou um novo):
 
 ```
-C:\ctv
-\Scripts\python.exe -m nucleo.cli meu-projeto.json --saida=site
+C:\ctv\n\Scripts\python.exe -m nucleo.cli meu-projeto.json --saida=site
 ```
 
 Exemplos de pedidos:
