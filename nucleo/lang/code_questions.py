@@ -68,8 +68,14 @@ def _frame(words: list[str]) -> str | None:
     return None
 
 
+REPEAT_WORDS = {"repetido", "repetidos", "repetida", "repetidas", "repetição", "duplicado", "duplicados", "duplicada",
+                "duplicação", "clichê", "clichês", "cliche", "cliches", "copiado", "copiada"}
+
+
 def is_code_question(text: str, index: CodeIndex) -> bool:
     words = re.findall(r"[\w$À-ÿ]+", text)
+    if any(w.lower() in REPEAT_WORDS for w in words):
+        return True
     names = [w for w in words if w in index.decls]
     unused = any(w.lower() in UNUSED_WORDS for w in words) and any(w.lower() in ("usadas", "usados", "usada", "usado")
                                                                     for w in words)
@@ -79,6 +85,18 @@ def is_code_question(text: str, index: CodeIndex) -> bool:
 
 def answer(text: str, index: CodeIndex) -> CodeAnswer:
     words = re.findall(r"[\w$À-ÿ]+", text)
+    if any(w.lower() in REPEAT_WORDS for w in words):
+        from ..code.cliches import find
+
+        found = find(str(index.root))[:12]
+        lines = []
+        for c in found:
+            where = ", ".join(f"{f}:{ln}" for f, ln in c.places[:4]) + (" ..." if len(c.places) > 4 else "")
+            example = " ".join(c.example.split())[:110]
+            lines.append(f"  {c.saving} nós economizáveis — {len(c.places)} cópias de {c.size} nós: {where}\n"
+                         f"      {example}")
+        head = f"{len(found)} padrões de código repetido (os que mais economizariam se virassem uma função):\n"
+        return CodeAnswer("repetido", head + "\n".join(lines), found)
     if any(w.lower() in UNUSED_WORDS for w in words):
         unused = sorted(index.cb.unused_exports())
         names = {(f, p): n for n, locs in index.decls.items() for f, p in locs}

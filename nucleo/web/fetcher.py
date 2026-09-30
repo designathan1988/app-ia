@@ -28,7 +28,7 @@ from .robots import Rules
 
 USER_AGENT = "nucleo/0.1 (motor local de programacao; consultas sob demanda, sem rastreamento)"
 CHALLENGE_MARKERS = ("<title>Client Challenge</title>", "cf-challenge", "Just a moment...", "captcha",
-                     "bots use DuckDuckGo too", "complete the following challenge")
+                     "bots use DuckDuckGo too", "complete the following challenge", "Anubis", "Verifying your request")
 
 
 @dataclass
