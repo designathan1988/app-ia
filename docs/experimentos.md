@@ -403,3 +403,28 @@ amostras.
 - **Modelo em JSON:** o modelo é escrito como dado, ainda não a partir de uma frase em português.
 - **Não é síntese:** é geração a partir de modelo (MDE), como previsto no plano. O código é correto por construção e
   por verificação, não inventado.
+
+## M7 — Reparo de defeitos em funções reais, julgado em entradas nunca vistas
+
+**Método** (`nucleo/repair/templates.py`, `experiments/m7_repair.py`):
+- **Defeitos:** injetados nas funções reais do corpo de código (as tarefas do M6, com testes que distinguem). Um
+  defeito só vale se falhar em pelo menos um dos 6 testes visíveis.
+- **Reparo:** templates de correção no estilo TBar. Trocar um operador pelo seu irmão; constante ±1; inverter
+  operandos; pôr ou tirar negação; método irmão (strip/lstrip/rstrip, startswith/endswith…); outra variável. A busca
+  vai da menor edição para a maior (até 2).
+- **Juiz:** a função original, em 30 entradas que o reparo nunca viu. "Sobreajustado" é o reparo que passa nos testes
+  visíveis e falha nos escondidos, o problema do GenProg: 2 de 105 corretos.
+- **QuixBugs e BugsInPy** (as referências do plano) exigem download, que depende de autorização.
+
+**Resultado:**
+
+| Tipo de defeito | Defeitos | Corretos | Sobreajustados | Não reparados |
+|---|---|---|---|---|
+| do tipo que os templates desfazem | 94 | **91,5%** | 1,1% | 7,4% |
+| **fora dos templates** (constante ±2..5, chamada removida, método sem parentesco, operando trocado por constante) | 52 | **32,7%** | 1,9% | 65,4% |
+
+**Leitura honesta:**
+- **A primeira linha é otimista por construção:** os defeitos vêm das mesmas edições que o reparo sabe desfazer.
+- **A segunda linha é a mais realista.**
+- **O que se sustenta nos dois casos é o baixo sobreajuste.** Com testes que distinguem e a preferência pela menor
+  edição, o sistema raramente propõe um "conserto" que só passa nos testes visíveis. Quando não sabe, não propõe.
