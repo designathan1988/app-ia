@@ -599,6 +599,18 @@ def _value_candidates(piece: Piece, node_type: str | None) -> list[tuple[str, st
             for prop, value in value_index().get(lem, [])]
 
 
+def _value_words(piece: Piece, prop: str, value: str) -> int:
+    """How many lemmas of a value phrase this (property, value) explains: the words naming the value, and the
+    property's own label if the phrase says it ("com fundo preto": "fundo" labels background-color, not color)."""
+    lem = piece.lemmas
+    n = sum(1 for x in lem if (prop, value) in value_index().get(x, []))
+    for e in lexicon.load():
+        if e.kind == "propriedade" and e.id == prop and e.lemmas and                 any(lem[i:i + len(e.lemmas)] == e.lemmas for i in range(len(lem) - len(e.lemmas) + 1)):
+            n += len(e.lemmas)
+            break
+    return min(n, len(lem))
+
+
 def _common_lemmas(piece: Piece) -> tuple:
     """The lemmas of the piece's common words: a capitalized word inside the sentence is part of a name ("Café
     Serra"), never the name of a CSS value."""
@@ -934,7 +946,7 @@ def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                 explained = {k: len(p.lemmas)} if rp != k else {}
                 explained[rp] = ex + (len(q.lemmas) if j == rp else 0)
                 if j != rp:
-                    explained[j] = len(q.lemmas)
+                    explained[j] = _value_words(q, prop, value)
                 bp, st, more, extra = _layer(pieces, used, world)
                 used |= set(more)
                 for m in more:
@@ -1167,6 +1179,35 @@ def split_clauses(text: str) -> list[str]:
     if current:
         parts.append(current)
     return [" ".join(p).replace(" ,", ",").strip(" ,;") for p in parts]
+
+
+def gapped_clauses(text: str) -> list[str] | None:
+    """Coordination without a second verb (gapping): "insira um título e um parágrafo", "deixe a seção com fundo preto
+    e o título branco" are two requests sharing the first verb. Returns the clauses with the verb repeated, or None
+    when the sentence has no such "e"."""
+    words = tokenize(text)
+    verb = next((k for k, w in enumerate(words) if _frame_verb(w) and not _politeness_words(words, k)), None)
+    if verb is None:
+        return None
+    parts, current = [], []
+    for w in words[verb:]:
+        if w.lower() == "e" and current:
+            parts.append(current)
+            current = []
+            continue
+        current.append(w)
+    if current:
+        parts.append(current)
+    if len(parts) < 2 or any(not p for p in parts):
+        return None
+    head = " ".join(words[:verb + 1])
+    out = [" ".join(words[:verb]) + " " + " ".join(parts[0]) if verb else " ".join(parts[0])]
+    out += [head + " " + " ".join(p) for p in parts[1:]]
+    return [c.strip() for c in out]
+
+
+def _politeness_words(words: list[str], k: int) -> bool:
+    return words[k].lower() == "por" and k + 1 < len(words) and words[k + 1].lower() == "favor"
 
 
 def understand(text: str, world: World, by: str = "usuario") -> Understanding:

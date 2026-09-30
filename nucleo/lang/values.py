@@ -3,9 +3,8 @@
 A CSS keyword is an English word ("right", "bold", "italic", "red"). Its Portuguese names come from:
 
 1. **Translation.** The Portuguese adjectives and nouns Wiktionary lists as translations of the keyword as an English
-   word ("italic" -> "itálico", "red" -> "vermelho"). A verb is used only as the primary translation, through its
-   participle ("justify" -> "justificar" -> "justificado"): lower-ranked verbs translate other senses of the
-   English word ("block" -> "bloquear").
+   word ("italic" -> "itálico", "red" -> "vermelho"). Only the first verb it gives is used, through its participle
+   ("justify" -> "justificar" -> "justificado"): later verbs translate other senses of the English word.
 2. **Description.** MDN's pt-BR reference describes every keyword of a property ("right: O conteúdo é alinhado na
    borda direita"). A word that describes one value and none of the property's other values, in a short
    description, names it ("direita", "centralizado").
@@ -255,12 +254,15 @@ def index() -> dict[str, list[tuple[str, str]]]:
     for prop in props:
         for value in _keywords(prop) - GLOBAL:
             add(fold(value), prop, value)  # the keyword as users type it
-            for rank, w in enumerate(trans.get(value, [])):
+            first_verb = True
+            for w in trans.get(value, []):
                 if {"A", "N"} & _pos(w) and "INF" not in _pos(w):
                     add(fold(lemma_of(w)), prop, value, translated=True)
-                elif rank <= 1 and "INF" in _pos(w):
-                    # the primary translation is a verb ("justify" -> "justificar"): its participle names the
-                    # value ("justificado"); other senses of the verb are not taken
+                elif first_verb and "INF" in _pos(w):
+                    # the first verb the dictionary gives ("justify" -> "justificar", "underline" -> "sublinhar"):
+                    # its participle names the value ("justificado", "sublinhado"); later verbs translate other
+                    # senses of the English word
+                    first_verb = False
                     part = _participle(w)
                     if part:
                         add(fold(part), prop, value, translated=True)

@@ -152,6 +152,8 @@ def test_general_mechanisms(aurora, text, expected):
     ("mova o parágrafo Intro para cima", {"kind": "command", "command": "element.moveUp", "id": "n-intro"}),
     # a verb whose participle names a value ("centralizado" -> text-align: center)
     ("centralize o título Title", {"kind": "style", "property": "text-align", "value": "center"}),
+    # ... or the participle of the first verb a dictionary gives for the keyword ("underline" -> "sublinhar")
+    ("sublinhe o título Title", {"kind": "style", "property": "text-decoration-line", "value": "underline"}),
     # an unquoted new text after "para"/"por", even when the tagger reads it as a verb
     ("mude o texto do parágrafo Intro para Comprar", {"kind": "field", "field": "text", "value": "Comprar"}),
     ("troque o texto do título Title por Café Serra", {"kind": "field", "field": "text", "value": "Café Serra"}),
@@ -172,3 +174,11 @@ def test_definite_phrase_is_not_a_new_element():
     """ "o título" when a title exists presupposes that title (DRT): it is never silently read as inserting one."""
     u = understand("coloque o título Title em caixa alta", World.from_document(load_fixture("aurora"), []))
     assert not (u.decision == "executar" and u.best.constraints[0]["kind"] == "added"), u.message
+
+
+def test_gapping_repeats_the_verb():
+    from nucleo.lang.understand import gapped_clauses
+
+    first, second = gapped_clauses("insira um título e um parágrafo na seção Hero")
+    assert first == "insira um título" and second.startswith("insira um parágrafo")
+    assert gapped_clauses('por favor, mude o texto do título Title para "A e B"') is None  # "e" inside quotes

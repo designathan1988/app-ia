@@ -16,7 +16,7 @@ from .builder.effects import CACHE, learn, load_model
 from .builder.knowledge import load_domains
 from .builder.planner import Planner
 from .lang import learned
-from .lang.understand import World, split_clauses, understand
+from .lang.understand import World, gapped_clauses, split_clauses, understand
 
 
 def low_priority() -> None:
@@ -49,7 +49,12 @@ class Session:
         """One request, or several joined by "e (depois)": then all of them or none (atomic)."""
         clauses = split_clauses(text)
         if len(clauses) <= 1:
-            return self._ask_one(text)
+            gapped = gapped_clauses(text)
+            if not gapped or self._understood(text):
+                return self._ask_one(text)
+            if not all(self._understood(c) for c in gapped):
+                return self._ask_one(text)
+            clauses = gapped  # "X e Y" read as "verbo X e verbo Y", since the whole was not understood as one
         start = self.state
         done = []
         for c in clauses:
@@ -65,6 +70,10 @@ class Session:
                      [c for a in done for c in a.commands], True)
         self.history.append(ans)
         return ans
+
+    def _understood(self, text: str) -> bool:
+        doc = self.document()
+        return understand(text, World.from_document(doc["document"], doc["selection"])).decision == "executar"
 
     def _ask_one(self, text: str) -> Answer:
         doc = self.document()
