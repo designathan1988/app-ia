@@ -727,6 +727,12 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
     if pred is None:
         return "não achei o verbo do pedido"
     pieces = _pieces(tokens, pred)
+    known = {(n["name"] or "").lower() for n in world.nodes.values()}
+    for p in pieces:
+        for t in p.words:
+            if (t.upos == "PROPN" or t.form[:1].isupper()) and t.form.lower() not in known and \
+                    not lexicon.match((lexicon.lemma_of(t.form),), KINDS):
+                return f"nenhum elemento se chama «{t.form}»"
     has_value = any(is_literal(t.form) for p in pieces for t in p.words) or any(
         p.case[-1:] and p.case[-1] in FRAMES["valor_casos"] and p.words for p in pieces)
     names_prop = any(lexicon.match(p.lemmas, {"propriedade", "atributo"}) for p in pieces)
@@ -770,6 +776,33 @@ def _analyses(word: str):
     return analyses(word)
 
 
+LINKS = {"depois", "também", "em", "seguida", "então", "logo", "ainda"}
+
+
+def split_clauses(text: str) -> list[str]:
+    """A compound request ("insira X e depois apague Y") as its clauses, in order. A clause starts at "e" (or ";")
+    when, after optional linking words ("depois", "também", "em seguida"), a word that can be a request verb comes."""
+    words = tokenize(text)
+    parts, current = [], []
+    k = 0
+    while k < len(words):
+        w = words[k]
+        if w.lower() in ("e", ";") and current:
+            j = k + 1
+            while j < len(words) and words[j].lower() in LINKS:
+                j += 1
+            if j < len(words) and _frame_verb(words[j]):
+                parts.append(current)
+                current = []
+                k = j
+                continue
+        current.append(w)
+        k += 1
+    if current:
+        parts.append(current)
+    return [" ".join(p).replace(" ,", ",").strip(" ,;") for p in parts]
+
+
 def understand(text: str, world: World, by: str = "usuario") -> Understanding:
     tokens = analyse(text)
     taught = _definition(tokens, text, world, by)
@@ -788,7 +821,7 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
         return u
     readings = _readings(tokens, world)
     if not readings or readings[0].cost > LIMIT:
-        why = "; ".join(readings[0].assumptions) if readings else _why_nothing(tokens, world)
+        why = ("; ".join(readings[0].assumptions) if readings else "") or _why_nothing(tokens, world)
         return Understanding(text, tokens, readings, "nao_entendi", f"Não entendi: {why}.")
     best = readings[0]
     if best.unknown_verb:

@@ -15,7 +15,7 @@ from .builder.client import Builder
 from .builder.effects import CACHE, learn, load_model
 from .builder.knowledge import load_domains
 from .builder.planner import Planner
-from .lang.understand import World, understand
+from .lang.understand import World, split_clauses, understand
 
 
 def low_priority() -> None:
@@ -44,6 +44,27 @@ class Session:
         return self.b.call("stateOf", state=self.state)
 
     def ask(self, text: str) -> Answer:
+        """One request, or several joined by "e (depois)": then all of them or none (atomic)."""
+        clauses = split_clauses(text)
+        if len(clauses) <= 1:
+            return self._ask_one(text)
+        start = self.state
+        done = []
+        for c in clauses:
+            a = self._ask_one(c)
+            self.history.pop()
+            if not a.ok:
+                self.state = start
+                ans = Answer(text, a.decision, f"Nada foi feito: na parte «{c}»: {a.message}", [], False)
+                self.history.append(ans)
+                return ans
+            done.append(a)
+        ans = Answer(text, "executado", " Depois: ".join(a.message for a in done),
+                     [c for a in done for c in a.commands], True)
+        self.history.append(ans)
+        return ans
+
+    def _ask_one(self, text: str) -> Answer:
         doc = self.document()
         u = understand(text, World.from_document(doc["document"], doc["selection"]))
         if u.decision == "aprendido":

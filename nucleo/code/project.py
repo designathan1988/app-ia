@@ -109,6 +109,22 @@ class CodeBase:
     def unused_exports(self) -> set[tuple[str, int]]:
         return {(a.args[0].value, a.args[1]) for a in self.model.atoms(PredKey("nao_usado", 2))}
 
+    def impact_fast(self, file: str, pos: int) -> set[tuple[str, int]]:
+        """The same answer as ``impact``, as reachability over the ``depende`` relation the rules already derived
+        in the project model (no re-evaluation: milliseconds instead of a full run)."""
+        users: dict[tuple, set] = {}
+        for a in self.model.atoms(PredKey("depende", 4)):
+            if a.args[1] >= 0:
+                users.setdefault((a.args[2].value, a.args[3]), set()).add((a.args[0].value, a.args[1]))
+        seen: set = set()
+        stack = [(file, pos)]
+        while stack:
+            for u in users.get(stack.pop(), ()):
+                if u not in seen:
+                    seen.add(u)
+                    stack.append(u)
+        return seen
+
     def impact(self, file: str, pos: int) -> set[tuple[str, int]]:
         """Top-level declarations that depend on (file, pos), transitively."""
         text = self._text + IMPACT_RULES + f"\nalvo({_q(file)}, {pos})."
