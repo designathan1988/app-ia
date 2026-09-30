@@ -361,3 +361,45 @@ A divergência restante é o `default` sintético do `typescript` 7 (pacote nati
 
 **Custo:** a rodada completa travou o computador do usuário. Os experimentos agora rodam em prioridade baixa, em
 amostras.
+
+## M6 — Modelo → projeto de vários arquivos em TypeScript e Python, verificado
+
+**Método:**
+- **Entrada:** um modelo declarativo do projeto (`nucleo/gen/model.py`): entidades; campos tipados (texto, inteiro,
+  decimal, booleano, enum); restrições (obrigatório, mín./máx., formato e-mail, valores); relações.
+- **Saída:** geradores determinísticos produzem, nas duas linguagens:
+  - TypeScript: tipos, validadores, um repositório em memória com integridade referencial, e testes;
+  - Python: dataclasses, validadores, o mesmo repositório, e testes.
+- **Verificação**, sem a palavra de ninguém valer como prova:
+  1. o compilador TypeScript em modo estrito (`noUncheckedIndexedAccess`) não acusa nada;
+  2. os testes gerados passam em Node e em pytest;
+  3. **teste diferencial:** valores aleatórios são julgados pelo validador TS, pelo validador Python e pelo significado
+     de referência do modelo, e os três precisam dar os mesmos códigos de erro. Os valores incluem válidos e
+     quebrados, unicode, emojis nos limites de tamanho, floats, booleanos, nulos e tipos errados.
+
+**Resultado** (`experiments/m6_multifile.py`, 30 modelos aleatórios com nomes inventados, 1 a 4 entidades):
+
+| Medida | Valor |
+|---|---|
+| Projetos verificados | **30 / 30** (meta do §11: 100%) |
+| Código gerado | 330 arquivos, 15.735 linhas |
+| Valores no teste diferencial | 9.000, **0 divergências** |
+| Tempo | 70 s, em prioridade baixa |
+
+**A verificação pega defeitos?** Defeitos injetados de propósito nos geradores:
+
+| Defeito injetado | Modelos em que foi detectado |
+|---|---|
+| TS conta o tamanho em unidades UTF-16 (`s.length`) | 1/12 → **11/12**, depois de reforçar o fuzz com emojis nos limites |
+| Python usa `<=` em vez de `<` no mínimo | **10/12** |
+
+**Defeitos reais pegos pela verificação durante o desenvolvimento:**
+- `VALIDATORS` tipado como `Record<string, …>`: com acesso estrito, cada chamada podia ser `undefined` (pego pelo `tsc`).
+- `false` do JSON escrito dentro de código Python (pego pelo pytest).
+
+**Limites:**
+- **Domínio fixo:** o gerador cobre um tipo de projeto (dados, validação, repositório). Não há rotas HTTP nem
+  interface.
+- **Modelo em JSON:** o modelo é escrito como dado, ainda não a partir de uma frase em português.
+- **Não é síntese:** é geração a partir de modelo (MDE), como previsto no plano. O código é correto por construção e
+  por verificação, não inventado.
