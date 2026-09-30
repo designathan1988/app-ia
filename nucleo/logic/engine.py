@@ -103,7 +103,8 @@ class Model:
         self.relations: dict[PredKey, dict[tuple, Atom]] = {}
         self.facts: frozenset[Atom] = frozenset(program.facts)
         self.indeterminate: set[Atom] = set()  # positive atoms whose defeasible conflict has no winner
-        self._indexes: dict[tuple[PredKey, tuple[int, ...]], dict[tuple, list[Atom]]] = {}
+        # predicate -> bound positions -> key -> atoms (built lazily, kept up to date by _add/_remove_many)
+        self._indexes: dict[PredKey, dict[tuple[int, ...], dict[tuple, list[Atom]]]] = {}
 
     def __contains__(self, atom: Atom) -> bool:
         return atom in self.entries
@@ -112,13 +113,13 @@ class Model:
         return list(self.relations.get(pred, {}).values())
 
     def _index(self, pred: PredKey, positions: tuple[int, ...]) -> dict[tuple, list[Atom]]:
-        key = (pred, positions)
-        idx = self._indexes.get(key)
+        by_pos = self._indexes.setdefault(pred, {})
+        idx = by_pos.get(positions)
         if idx is None:
             idx = {}
             for atom in self.relations.get(pred, {}).values():
                 idx.setdefault(tuple(atom.args[p] for p in positions), []).append(atom)
-            self._indexes[key] = idx
+            by_pos[positions] = idx
         return idx
 
     def _add(self, atom: Atom, entry: Entry) -> bool:
@@ -128,10 +129,39 @@ class Model:
         self.entries[atom] = entry
         if old is None:
             self.relations.setdefault(atom.pred, {})[atom.args] = atom
-            for (pred, positions), idx in self._indexes.items():
-                if pred == atom.pred:
-                    idx.setdefault(tuple(atom.args[p] for p in positions), []).append(atom)
+            for positions, idx in self._indexes.get(atom.pred, {}).items():
+                idx.setdefault(tuple(atom.args[p] for p in positions), []).append(atom)
         return True
+
+    def _remove_many(self, atoms) -> None:
+        for atom in atoms:
+            if self.entries.pop(atom, None) is not None:
+                del self.relations[atom.pred][atom.args]
+                for positions, idx in self._indexes.get(atom.pred, {}).items():
+                    idx[tuple(atom.args[p] for p in positions)].remove(atom)
+
+    def _share(self, other: "Model", pred: PredKey) -> None:
+        """Take a final relation of `other` as is (a reused component: same content, never modified again)."""
+        rel = other.relations.get(pred)
+        if rel is None:
+            return
+        self.relations[pred] = rel
+        for atom in rel.values():
+            self.entries[atom] = other.entries[atom]
+        if pred in other._indexes:
+            self._indexes[pred] = other._indexes[pred]
+
+    def _copy(self, other: "Model", pred: PredKey) -> None:
+        """Start a relation from `other`'s content, to be modified here (a maintained component)."""
+        rel = other.relations.get(pred)
+        if rel is None:
+            return
+        self.relations[pred] = dict(rel)
+        for atom in rel.values():
+            self.entries[atom] = other.entries[atom]
+        if pred in other._indexes:
+            self._indexes[pred] = {pos: {k: list(v) for k, v in idx.items()}
+                                   for pos, idx in other._indexes[pred].items()}
 
     def lookup(self, pattern: Atom, subst: dict) -> Iterator[Atom]:
         bound = tuple(i for i, t in enumerate(pattern.args) if not isinstance(t, Var) or t in subst)
@@ -225,8 +255,9 @@ class _Evaluator:
         items.sort(key=lambda it: (_order_class(it[1]), it[0] != delta_pos if delta_pos is not None else 0))
         return items
 
-    def fire(self, rule: Rule, delta_pos: int | None, delta: dict[PredKey, set[Atom]]):
-        """Yield (head_atom, entry) for every rule instance, using `delta` at position delta_pos."""
+    def fire(self, rule: Rule, delta_pos: int | None, delta: dict[PredKey, set[Atom]], bound: dict | None = None):
+        """Yield (head_atom, entry) for every rule instance, using `delta` at position delta_pos, with the variables
+        in `bound` already fixed (rederiving one head)."""
         body = self._ordered_body(rule, delta_pos)
         model = self.model
 
@@ -294,7 +325,7 @@ class _Evaluator:
                     yield from rec(k + 1, subst, premises, absences, comps, aggs, taint0)
                     absences.pop()
 
-        yield from rec(0, {}, [], [], [], [], 0)
+        yield from rec(0, dict(bound or {}), [], [], [], [], 0)
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +429,116 @@ def _resolve_defeasible(ev: _Evaluator, model: Model, rules: list[Rule]) -> None
             model._add(*winner)
 
 
+def _maintainable(rules: list[Rule], comp, analysis: Analysis) -> bool:
+    """A component maintained tuple by tuple: strict rules with positive literals, comparisons and absences (whose
+    targets live in lower, already final components). Aggregates and defeasible pairs are evaluated again."""
+    if any(pred.base in analysis.defeasible_of for pred in comp):
+        return False
+    return all(not r.defeasible and all(isinstance(lit, (Pos, Cmp, Naf, NaoConsta)) for lit in r.body)
+               for r in rules)
+
+
+def _diff(model: Model, reuse: Model, candidates) -> tuple[dict, set]:
+    """What changed among `candidates` against the old model: grown (new or cheaper) atoms by predicate, and
+    shrunk (removed or dearer) atoms."""
+    grown: dict[PredKey, set[Atom]] = {}
+    shrunk: set[Atom] = set()
+    for atom in candidates:
+        new, old = model.entries.get(atom), reuse.entries.get(atom)
+        if new is not None and (old is None or new.cost < old.cost):
+            grown.setdefault(atom.pred, set()).add(atom)
+        elif old is not None and (new is None or new.cost > old.cost):
+            shrunk.add(atom)
+    return grown, shrunk
+
+
+def _maintain(ev: "_Evaluator", model: Model, reuse: Model, comp, rules: list[Rule], facts: list[Atom],
+              grown_in: dict, shrunk_in: set) -> set[Atom]:
+    """Tuple-level maintenance of a component (DRed: delete and rederive, then semi-naive insertion).
+
+    1. The old content is copied.
+    2. Every copied atom whose best justification used a removed fact, a shrunk input, the absence of an atom that
+       now exists, or an atom invalidated here is invalidated (transitively) and removed. What remains has a valid
+       justification with its old cost, which is still its minimum unless a grown input or a vanished atom offers a
+       cheaper one (step 4).
+    3. Each invalidated atom is rederived from what remains: its own fact, or its rules fired with the head bound.
+    4. New instances: rules fired with a grown input at a positive literal, or with an atom that vanished at an
+       absence (``not``/``nao_consta``); then semi-naive iteration, where improvements re-enter the delta, as in
+       full evaluation.
+    """
+    new_facts = set(facts)
+    rev: dict[Atom, list[Atom]] = {}
+    for pred in comp:
+        model._copy(reuse, pred)
+        for atom in reuse.atoms(pred):
+            entry = reuse.entries[atom]
+            for prem in entry.just.premises:
+                rev.setdefault(prem, []).append(atom)
+            for _, absent in entry.just.absences:
+                rev.setdefault(absent, []).append(atom)
+    invalid: set[Atom] = set()
+    stack = [a for pred in comp for a in reuse.atoms(pred)
+             if reuse.entries[a].just.rule is None and a not in new_facts]
+    appeared = [a for atoms in grown_in.values() for a in atoms if a not in reuse.entries]
+    stack += [d for a in list(shrunk_in) + appeared for d in rev.get(a, ())]
+    while stack:
+        a = stack.pop()
+        if a in invalid:
+            continue
+        invalid.add(a)
+        stack.extend(rev.get(a, ()))
+    model._remove_many(invalid)
+    touched = set(invalid)  # every atom whose entry may differ from the old model
+
+    delta: dict[PredKey, set[Atom]] = {}
+    for f in facts:
+        if model._add(f, Entry(FACT_COST, Justification(None, (), (), (), ()))):
+            delta.setdefault(f.pred, set()).add(f)
+    by_head: dict[PredKey, list[Rule]] = {}
+    for rule in rules:
+        by_head.setdefault(rule.head.pred, []).append(rule)
+    for atom in invalid:
+        for rule in by_head.get(atom.pred, ()):
+            bound = _unify(rule.head, atom, {})
+            if bound is None:
+                continue
+            for head, entry in list(ev.fire(rule, None, {}, bound)):
+                if model._add(head, entry):
+                    delta.setdefault(head.pred, set()).add(head)
+    vanished: dict[PredKey, list[Atom]] = {}
+    for a in shrunk_in:
+        if a not in model.entries:
+            vanished.setdefault(a.pred, []).append(a)
+    for rule in rules:
+        for i, lit in enumerate(rule.body):
+            if isinstance(lit, Pos) and lit.atom.pred in grown_in:
+                for head, entry in list(ev.fire(rule, i, grown_in)):
+                    if model._add(head, entry):
+                        delta.setdefault(head.pred, set()).add(head)
+            elif isinstance(lit, (Naf, NaoConsta)):
+                for gone in vanished.get(lit.atom.pred, ()):
+                    bound = _unify(lit.atom, gone, {})
+                    if bound is None:
+                        continue
+                    for head, entry in list(ev.fire(rule, None, {}, bound)):
+                        if model._add(head, entry):
+                            delta.setdefault(head.pred, set()).add(head)
+    recursive = [(rule, i) for rule in rules for i, lit in enumerate(rule.body)
+                 if isinstance(lit, Pos) and lit.atom.pred in comp]
+    while delta and recursive:
+        new_delta: dict[PredKey, set[Atom]] = {}
+        for rule, pos in recursive:
+            if rule.body[pos].atom.pred not in delta:
+                continue
+            for head, entry in list(ev.fire(rule, pos, delta)):
+                if model._add(head, entry):
+                    new_delta.setdefault(head.pred, set()).add(head)
+        touched.update(a for atoms in delta.values() for a in atoms)
+        delta = new_delta
+    touched.update(a for atoms in delta.values() for a in atoms)
+    return touched
+
+
 def evaluate(program: Program, analysis: Analysis | None = None, *,
              reuse: Model | None = None, affected: set[PredKey] | None = None) -> Model:
     """The perfect model of `program`.
@@ -407,12 +548,17 @@ def evaluate(program: Program, analysis: Analysis | None = None, *,
     is sound only when `affected` is closed under dependency (see
     ``incremental.affected_by``) and `reuse` is the model of a program with the
     same rules, since a component's content depends only on the facts of its own
-    predicates and on the components below it.
+    predicates and on the components below it. An affected component that is
+    without aggregates or defeasible rules is maintained tuple by tuple
+    (``_maintain``); the others are evaluated again.
     """
     analysis = analysis or analyze(program)
     model = Model(program, analysis)
     model.reused_components = 0
+    model.maintained_components = 0
     ev = _Evaluator(model)
+    grown: dict[PredKey, set[Atom]] = {}  # changes against `reuse`, for the components above
+    shrunk: set[Atom] = set()
     facts_by_pred: dict[PredKey, list[Atom]] = {}
     for f in program.facts:
         facts_by_pred.setdefault(f.pred, []).append(f)
@@ -421,42 +567,56 @@ def evaluate(program: Program, analysis: Analysis | None = None, *,
     for ci, comp in enumerate(analysis.components):
         if reuse is not None and affected is not None and not (comp & affected):
             for pred in comp:
-                for atom in reuse.atoms(pred):
-                    model._add(atom, reuse.entries[atom])
+                model._share(reuse, pred)
             model.indeterminate |= {a for a in reuse.indeterminate if a.pred in comp}
             resolved |= {pred.base for pred in comp if pred.base in analysis.defeasible_of}
             model.reused_components += 1
             continue
-        delta: dict[PredKey, set[Atom]] = {}
-        for pred in comp:
-            for f in facts_by_pred.get(pred, ()):
-                if model._add(f, Entry(FACT_COST, Justification(None, (), (), (), ()))):
-                    delta.setdefault(pred, set()).add(f)
-        for pred in comp:
-            base = pred.base
-            if base in analysis.defeasible_of and base not in resolved:
-                # both p and -p facts must be present before deciding
-                for other in (PredKey(base[0], base[1], False), PredKey(base[0], base[1], True)):
-                    for f in facts_by_pred.get(other, ()):
-                        model._add(f, Entry(FACT_COST, Justification(None, (), (), (), ())))
-                _resolve_defeasible(ev, model, analysis.defeasible_of[base])
-                resolved.add(base)
         rules = analysis.rules_of[ci]
-        for rule in rules:
-            for head, entry in list(ev.fire(rule, None, {})):
-                if model._add(head, entry):
-                    delta.setdefault(head.pred, set()).add(head)
-        recursive = [
-            (rule, i) for rule in rules for i, lit in enumerate(rule.body)
-            if isinstance(lit, Pos) and lit.atom.pred in comp
-        ]
-        while delta and recursive:
-            new_delta: dict[PredKey, set[Atom]] = {}
-            for rule, pos in recursive:
-                if rule.body[pos].atom.pred not in delta:
-                    continue
-                for head, entry in list(ev.fire(rule, pos, delta)):
-                    if model._add(head, entry):
-                        new_delta.setdefault(head.pred, set()).add(head)
-            delta = new_delta
+        if reuse is not None and affected is not None and _maintainable(rules, comp, analysis):
+            facts = [f for pred in comp for f in facts_by_pred.get(pred, ())]
+            touched = _maintain(ev, model, reuse, comp, rules, facts, grown, shrunk)
+            model.maintained_components += 1
+        else:
+            _evaluate_component(ev, model, analysis, comp, rules, facts_by_pred, resolved)
+            touched = [a for pred in comp for a in model.atoms(pred) + reuse.atoms(pred)] if reuse else []
+        if reuse is not None:
+            g, sh = _diff(model, reuse, touched)
+            grown.update(g)
+            shrunk |= sh
     return model
+
+
+def _evaluate_component(ev: "_Evaluator", model: Model, analysis: Analysis, comp, rules: list[Rule],
+                        facts_by_pred: dict, resolved: set) -> None:
+    delta: dict[PredKey, set[Atom]] = {}
+    for pred in comp:
+        for f in facts_by_pred.get(pred, ()):
+            if model._add(f, Entry(FACT_COST, Justification(None, (), (), (), ()))):
+                delta.setdefault(pred, set()).add(f)
+    for pred in comp:
+        base = pred.base
+        if base in analysis.defeasible_of and base not in resolved:
+            # both p and -p facts must be present before deciding
+            for other in (PredKey(base[0], base[1], False), PredKey(base[0], base[1], True)):
+                for f in facts_by_pred.get(other, ()):
+                    model._add(f, Entry(FACT_COST, Justification(None, (), (), (), ())))
+            _resolve_defeasible(ev, model, analysis.defeasible_of[base])
+            resolved.add(base)
+    for rule in rules:
+        for head, entry in list(ev.fire(rule, None, {})):
+            if model._add(head, entry):
+                delta.setdefault(head.pred, set()).add(head)
+    recursive = [
+        (rule, i) for rule in rules for i, lit in enumerate(rule.body)
+        if isinstance(lit, Pos) and lit.atom.pred in comp
+    ]
+    while delta and recursive:
+        new_delta: dict[PredKey, set[Atom]] = {}
+        for rule, pos in recursive:
+            if rule.body[pos].atom.pred not in delta:
+                continue
+            for head, entry in list(ev.fire(rule, pos, delta)):
+                if model._add(head, entry):
+                    new_delta.setdefault(head.pred, set()).add(head)
+        delta = new_delta

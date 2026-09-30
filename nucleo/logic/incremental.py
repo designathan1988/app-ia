@@ -9,12 +9,17 @@ affects the other.
 Every component with no affected predicate has exactly the same content in the
 new model as in the old one: its content is a function of its own facts and of
 the components below it, and none of those changed. Those components are
-copied; the others are evaluated as usual, over the copied ones.
+shared with the old model, not copied.
 
-The cone is conservative, and deletion is handled by recomputing the cone, not
-by counting derivations. For negation and aggregates this is the simplest
-sound choice. Rule changes are not incremental: rule ids name rules in the
-justifications, so a changed rule set is evaluated from scratch.
+An affected component is maintained **tuple by tuple** (DRed, Gupta, Mumick and
+Subrahmanian 1993, adapted to minimum-cost justifications) when its rules have
+only positive literals, comparisons and absences: the atoms whose best
+justification used something that vanished, got dearer, or now exists under a
+``not`` are deleted and rederived; what grew is propagated semi-naively
+(``engine._maintain``). Components with aggregates or defeasible rules are
+evaluated again, over the final components below them. Rule changes are not
+incremental: rule ids name rules in the justifications, so a changed rule set
+is evaluated from scratch.
 
 Correctness is checked by comparison with full recomputation on random update
 sequences (``tests/test_incremental.py``), not argued only here.

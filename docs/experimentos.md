@@ -196,9 +196,15 @@ A meta do §11 era P ≥ 99,5% / C ≥ 97% e "VERDADEIRO errado" ≤ 0,1%.
 - O conjunto site-packages só foi usado depois de todos os ajustes: é o resultado de validação limpo.
 
 **Limites:**
-- **Manutenção incremental:** o cone é calculado por predicado. A mudança de um arquivo recalcula a relação
-  `alcanca` do projeto inteiro: ~5 s por atualização, contra 14 s da reconstrução. Para milissegundos é preciso
-  manutenção por tupla (DRed / contagem), prevista para o porte em Rust (R1).
+- **Manutenção incremental:** primeiro o cone era calculado por predicado, e a mudança de um arquivo recalculava a
+  relação `alcanca` do projeto inteiro (~5 s por atualização, contra 14 s da reconstrução).
+  - Agora os componentes sem agregado nem regra derrotável são mantidos **por tupla** (DRed: apaga o que perdeu a
+    justificativa e rederiva; propaga o que cresceu). A negação entra no DRed: um átomo que passa a existir invalida
+    quem dependia da sua ausência, e um que some habilita novas instâncias.
+  - Os componentes que não mudaram são compartilhados com o modelo anterior, com os índices, sem cópia.
+  - Medido em 7 alterações reais (builder-5 → builder-6): **2,3–4,2 s por arquivo, contra 13,7 s da reconstrução**,
+    e o resultado é igual ao da reconstrução.
+  - O custo restante é a rederivação do DRed e a própria execução em Python.
 - **Membros de objeto** (`a.b`) dependem de tipos. Eles não são resolvidos por essas regras. O plano é trazê-los como
   fatos do compilador, com proveniência.
 
@@ -438,12 +444,12 @@ amostras.
 | Pedido em português ao builder (entender + planejar + executar) | ~0,1 s |
 | Montar o conhecimento do código do builder-6 (320 arquivos) | ~19 s, uma vez por sessão |
 | Pergunta sobre o código (definição, usos, impacto) | 0,00–0,03 s |
-| Atualização incremental de um arquivo alterado | ~5 s |
+| Atualização incremental de um arquivo alterado | ~2–4 s (DRed; antes ~5 s) |
 | Gerar e verificar um projeto de vários arquivos | ~2 s |
 
 **Decisão:** não portar agora.
 - O uso interativo já responde em frações de segundo.
-- Os custos que pesam são a montagem inicial do índice (19 s) e o incremental (5 s). Os dois vêm de o motor recalcular
-  por predicado, não da linguagem (achado M3-7). A primeira melhoria é algorítmica (manutenção por tupla, DRed); o porte
-  em Rust vem depois, com a mesma bateria diferencial do M1.
+- Os custos que pesam são a montagem inicial do índice (19 s) e o incremental. A primeira melhoria foi algorítmica:
+  manutenção por tupla (DRed), que levou o incremental de ~5 s para ~2–4 s (achado M3-7). O porte em Rust vem depois,
+  com a mesma bateria diferencial do M1.
 - Não há toolchain de Rust na máquina. Instalá-lo exige download, que depende de autorização do usuário.

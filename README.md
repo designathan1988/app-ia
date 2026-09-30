@@ -37,7 +37,7 @@ explícito, raciocínio com prova, busca, aprendizado estrutural e verificação
 | **Conjunto mínimo de conflito** de cada CONTRADITORIO, com a garantia declarada (irredundante; minimal por inclusão quando monótono) | `tests/test_conflict.py`: 439 contradições conferidas pelo oráculo ingênuo, 307 por força bruta sobre todos os subconjuntos | feito |
 | **Contextos** (microteorias): herança, isolamento entre irmãos, origem de cada fato e regra | `tests/test_contexts.py`: programa repartido numa cadeia = programa inteiro; cada ancestral vê só a sua parte | feito |
 | **Versões em SQLite:** log de transações, `as_of(t)`, tudo ou nada | `tests/test_store.py`: todo estado passado reconstruído, também depois de reabrir o arquivo | feito |
-| **Manutenção incremental** pelo cone de dependência | `tests/test_incremental.py`: igual à recomputação (átomos, custos, INDETERMINADOS) em sequências aleatórias; ~78% dos componentes reaproveitados; dois defeitos injetados foram detectados | feito — **portão M1** |
+| **Manutenção incremental** pelo cone de dependência, por tupla (DRed) nos componentes sem agregado | `tests/test_incremental.py`: igual à recomputação (átomos, custos, INDETERMINADOS) em sequências aleatórias; ~78% dos componentes reaproveitados; dois defeitos injetados foram detectados | feito — **portão M1** |
 
 ## Usar
 

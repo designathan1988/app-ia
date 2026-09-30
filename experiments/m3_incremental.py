@@ -33,7 +33,8 @@ if __name__ == "__main__":
         t = time.time()
         cb.update_file(new[name])
         print(f"  atualização incremental de {name}: {time.time() - t:.1f}s "
-              f"(componentes reaproveitados {cb.model.reused_components}/{len(cb.model.analysis.components)})")
+              f"(componentes reaproveitados {cb.model.reused_components}, mantidos fato a fato "
+              f"{cb.model.maintained_components}, de {len(cb.model.analysis.components)})")
     t = time.time()
     full = evaluate(parse_program(cb._text))
     print(f"reconstrução completa: {time.time() - t:.1f}s")

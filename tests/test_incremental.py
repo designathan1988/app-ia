@@ -86,3 +86,21 @@ def test_noop_update_reuses_everything():
     same = update(model, add=[model.program.facts[0]])
     assert same.reused_components == len(same.analysis.components)
     _same(same, model, "sem mudança")
+
+
+def test_monotone_components_are_maintained_tuple_by_tuple():
+    """A recursive closure is maintained by delete-and-rederive, not recomputed, and equals recomputation."""
+    edges = [f"aresta({i},{i + 1})." for i in range(40)] + ["aresta(10,30).", "aresta(5,5)."]
+    model = evaluate(parse_program("\n".join(edges) + """
+        caminho(X,Y) :- aresta(X,Y).
+        caminho(X,Z) :- caminho(X,Y), aresta(Y,Z).
+        longe(X) :- caminho(0,X), X > 35.
+    """))
+    a = PredKey("aresta", 2)
+    steps = [([], [Atom(a, (20, 21))]), ([Atom(a, (0, 39))], []), ([], [Atom(a, (10, 30))]),
+             ([Atom(a, (20, 21))], [Atom(a, (0, 1))]), ([], [Atom(a, (5, 5))])]
+    for add, remove in steps:
+        model = update(model, add, remove)
+        assert model.maintained_components > 0
+        _same(model, evaluate(model.program), f"+{add} -{remove}")
+        check_model(model.program, model_certificate(model), model.indeterminate)
