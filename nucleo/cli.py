@@ -8,7 +8,8 @@ definir o alinhamento do texto como center"), or one of:
     salvar            write the document (also done after every change, when a file was given)
     exportar          write the site (HTML/CSS/JS) into the output folder
     esquecer <termo>  forget a taught word
-    pesquise <termo>  technical search: MDN, the local web-platform reference, npm
+    pesquise <termo>  search: MDN, Stack Overflow, the local web-platform reference, npm, GitHub, Wikipedia
+    leia <url>        the readable text of a page
     desfazer          go back to the state before the last change
     sair
 
@@ -72,6 +73,13 @@ def main(argv: list[str]) -> int:
             first = text.split()[0].lower() if text.split() else ""
             from .lang.morph import lemmas as _lemmas
 
+            if first in ("leia", "ler", "abra") and len(text.split()) > 1 and text.split()[1].startswith("http"):
+                from .web.fetcher import Fetcher
+                from .web.search import read_page
+
+                fetcher = Fetcher(pathlib.Path(__file__).resolve().parents[1] / "data" / "cache" / "web")
+                print("  " + read_page(fetcher, text.split()[1]).replace("\n", "\n  "), flush=True)
+                continue
             if any(l in ("pesquisar", "procurar", "buscar") for l in _lemmas(first, "V")):
                 from .web.fetcher import Fetcher
                 from .web.search import search

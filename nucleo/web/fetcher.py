@@ -27,7 +27,8 @@ from urllib.parse import urlsplit
 from .robots import Rules
 
 USER_AGENT = "nucleo/0.1 (motor local de programacao; consultas sob demanda, sem rastreamento)"
-CHALLENGE_MARKERS = ("<title>Client Challenge</title>", "cf-challenge", "Just a moment...", "captcha")
+CHALLENGE_MARKERS = ("<title>Client Challenge</title>", "cf-challenge", "Just a moment...", "captcha",
+                     "bots use DuckDuckGo too", "complete the following challenge")
 
 
 @dataclass
@@ -87,7 +88,13 @@ class Fetcher:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **headers})
         try:
             with self.open(req, 20) as r:
-                return r.status, r.read(self.max_bytes + 1)[: self.max_bytes], dict(r.headers)
+                body = r.read(self.max_bytes + 1)[: self.max_bytes]
+                headers = dict(r.headers)
+                if (headers.get("Content-Encoding") or headers.get("content-encoding") or "").lower() == "gzip":
+                    import gzip
+
+                    body = gzip.decompress(body)
+                return r.status, body, headers
         except urllib.error.HTTPError as e:
             return e.code, e.read(self.max_bytes) if e.fp else b"", dict(e.headers or {})
         except (urllib.error.URLError, TimeoutError, OSError):

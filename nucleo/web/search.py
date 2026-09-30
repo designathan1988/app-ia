@@ -12,10 +12,12 @@ claims, verification and approval (``claims.py``).
 
 from __future__ import annotations
 
+import html
 import json
 import pathlib
 import re
 import sqlite3
+from html.parser import HTMLParser
 from dataclasses import dataclass
 from urllib.parse import quote
 
@@ -131,9 +133,98 @@ def mdn(fetcher: Fetcher, query: str, locale: str = "pt-BR", limit: int = 5) -> 
     return out
 
 
+def stackoverflow(fetcher: Fetcher, query: str, limit: int = 5) -> list[Hit]:
+    """Stack Overflow questions (the public Stack Exchange API: no key, a daily quota per address)."""
+    r = fetcher.get("https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance"
+                    f"&q={quote(query)}&site=stackoverflow&pagesize={limit}&filter=default")
+    if r.status != 200:
+        return []
+    out = []
+    for it in r.json().get("items", [])[:limit]:
+        title = html.unescape(it.get("title", ""))
+        state = "respondida" if it.get("is_answered") else "sem resposta aceita"
+        out.append(Hit(title, f"{state}; {it.get('score', 0)} votos; tags: {', '.join(it.get('tags', []))}",
+                       it.get("link", ""), "stackoverflow"))
+    return out
+
+
+def github(fetcher: Fetcher, query: str, limit: int = 5) -> list[Hit]:
+    """GitHub repositories (the public search API, unauthenticated: a few requests per minute)."""
+    r = fetcher.get(f"https://api.github.com/search/repositories?q={quote(query)}&per_page={limit}",
+                    {"Accept": "application/vnd.github+json"})
+    if r.status != 200:
+        return []
+    return [Hit(it.get("full_name", ""), f"★{it.get('stargazers_count', 0)} {it.get('language') or ''} — "
+                f"{(it.get('description') or '')[:160]}", it.get("html_url", ""), "github")
+            for it in r.json().get("items", [])[:limit]]
+
+
+def wikipedia(fetcher: Fetcher, query: str, lang: str = "pt", limit: int = 3) -> list[Hit]:
+    r = fetcher.get(f"https://{lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch={quote(query)}"
+                    f"&format=json&srlimit={limit}")
+    if r.status != 200:
+        return []
+    out = []
+    for it in r.json().get("query", {}).get("search", [])[:limit]:
+        snippet = html.unescape(re.sub(r"<[^>]+>", "", it.get("snippet", "")))
+        out.append(Hit(it.get("title", ""), snippet[:200],
+                       f"https://{lang}.wikipedia.org/wiki/{quote(it.get('title', '').replace(' ', '_'))}",
+                       "wikipedia"))
+    return out
+
+
+class _Text(HTMLParser):
+    """The readable text of a page: headings, paragraphs, list items and code; not scripts, styles or navigation."""
+
+    KEEP = {"h1", "h2", "h3", "h4", "p", "li", "pre", "td", "th", "blockquote", "dt", "dd"}
+    SKIP = {"script", "style", "nav", "header", "footer", "aside", "form", "noscript", "svg"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.out: list[str] = []
+        self.stack: list[str] = []
+        self.skip = 0
+        self.buf = ""
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self.skip += 1
+        self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP and self.skip:
+            self.skip -= 1
+        if tag in self.KEEP and self.buf.strip():
+            text = re.sub(r"\s+", " ", self.buf).strip() if tag != "pre" else self.buf.strip("\n")
+            prefix = "# " if tag in ("h1", "h2") else "## " if tag in ("h3", "h4") else "- " if tag == "li" else ""
+            self.out.append(prefix + text)
+            self.buf = ""
+        while self.stack and self.stack[-1] != tag and tag in self.stack:
+            self.stack.pop()
+        if self.stack and self.stack[-1] == tag:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if not self.skip and any(t in self.KEEP for t in self.stack):
+            self.buf += data
+
+
+def read_page(fetcher: Fetcher, url: str, max_chars: int = 4000) -> str:
+    r = fetcher.get(url)
+    if r.origin == "bloqueado":
+        return "A página respondeu com um desafio anti-robô; não é contornado."
+    if r.status != 200:
+        return f"Não consegui ler a página (status {r.status})."
+    p = _Text()
+    p.feed(r.text())
+    text = "\n".join(dict.fromkeys(p.out))
+    return text[:max_chars] + ("\n..." if len(text) > max_chars else "")
+
+
 def search(query: str, fetcher: Fetcher | None = None) -> list[Hit]:
     """Local reference data first; the npm registry too when the network may be used."""
     hits = local(query)
     if fetcher is not None:
-        hits = mdn(fetcher, query) + hits + npm(fetcher, query)
+        hits = (mdn(fetcher, query) + stackoverflow(fetcher, query) + hits + npm(fetcher, query)
+                + github(fetcher, query) + wikipedia(fetcher, query))
     return hits
