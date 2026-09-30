@@ -40,6 +40,7 @@ class Session:
         self.planner = Planner(builder, load_domains(), load_model() if CACHE.exists() else learn(builder))
         self.state = builder.call("setup", document=document, selection=[], locale=locale)["state"]
         self.history: list[Answer] = []
+        self.last_reading: tuple | None = None  # (verb, frame) of the last executed request
 
     def document(self) -> dict:
         return self.b.call("stateOf", state=self.state)
@@ -94,6 +95,10 @@ class Session:
         else:
             self.state = st
             a = Answer(text, "executado", u.message, cmds, True)
+            from .lang import preferences
+
+            self.last_reading = (u.best.verb, u.best.frame)
+            preferences.kept(*self.last_reading)
         self.history.append(a)
         return a
 

@@ -78,6 +78,11 @@ class Assistant:
         if not self._previous:
             return Reply("comando", "Nada a desfazer.", False)
         self.session.state = self._previous.pop()
+        if self.session.last_reading:
+            from .lang import preferences
+
+            preferences.undone(*self.session.last_reading)  # evidence against that reading of that verb
+            self.session.last_reading = None
         self._save()
         return Reply("comando", "Desfeito.")
 

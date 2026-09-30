@@ -64,3 +64,15 @@ def test_a_taught_structure_is_built_whole(tmp_path, monkeypatch):
         assert nodes[2:] == [("article", None), ("heading", "Plano"), ("button", "Assinar")]
         assert s.ask("herói significa uma seção com um carrossel mágico").decision == "nao_entendi"
     lexicon.load.cache_clear()
+
+
+def test_undone_readings_become_costlier(tmp_path, monkeypatch):
+    from nucleo.lang import preferences
+
+    monkeypatch.setattr(preferences, "STORE", tmp_path / "prefs.json")
+    assert preferences.penalty("colocar", "mover") == 0.0
+    preferences.kept("colocar", "mover")
+    preferences.undone("colocar", "mover")
+    preferences.undone("colocar", "mover")
+    p = preferences.penalty("colocar", "mover")
+    assert 0.9 < p <= preferences.PENALTY and preferences.penalty("colocar", "existir") == 0.0

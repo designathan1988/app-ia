@@ -87,5 +87,6 @@ py -m venv C:\ctv\n
 C:\ctv\n\Scripts\python.exe -m pip install pytest hypothesis clingo
 C:\ctv\n\Scripts\python.exe -m nucleo.lang.morph        # índice do MorphoBr (uma vez)
 C:\ctv\n\Scripts\python.exe experiments\x2_parser.py 10  # treina etiquetador e analisador (~13 min)
+C:\ctv\n\Scripts\python.exe -m nucleo.lang.values     # nomes em português dos valores CSS, induzidos da MDN (uma vez)
 C:\ctv\n\Scripts\python.exe scripts\ci.py
 ```

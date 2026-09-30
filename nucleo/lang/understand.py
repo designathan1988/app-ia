@@ -70,6 +70,7 @@ class Reading:
     paraphrase: str = ""
     ambiguous: list = field(default_factory=list)  # candidate nodes when a referent was not unique
     unknown_verb: bool = False
+    verb: str = ""
 
 
 @dataclass
@@ -432,9 +433,12 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
     if not frames:
         frames = FRAMES["quadros"]
         base_cost = COST["verbo_fora_do_quadro"]
+    from . import preferences
+
     for f in frames:
         for r in _frame_readings(f, pieces, world):
-            r.cost += base_cost
+            r.verb = pred.lemma
+            r.cost += base_cost + preferences.penalty(pred.lemma, f["id"])  # readings the user keeps undoing
             if base_cost:
                 r.unknown_verb = True
                 r.assumptions.insert(0, f"o verbo '{pred.lemma}' não está no quadro '{f['id']}'")
