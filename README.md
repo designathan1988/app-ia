@@ -44,9 +44,7 @@ explícito, raciocínio com prova, busca, aprendizado estrutural e verificação
 ### No navegador
 
 ```
-C:\ctv
-\Scripts\python.exe C:\Codex-Shared
-ucleoun_web.py --codigo=C:/Codex-Shared/deepseek/builder-6
+C:\ctv\n\Scripts\python.exe C:\Codex-Shared\nucleo\run_web.py --codigo=C:/Codex-Shared/deepseek/builder-6
 ```
 
 Abra http://localhost:8790. A tela tem a conversa à esquerda, a pré-visualização da página à direita, exemplos
