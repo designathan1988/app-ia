@@ -428,3 +428,22 @@ amostras.
 - **A segunda linha é a mais realista.**
 - **O que se sustenta nos dois casos é o baixo sobreajuste.** Com testes que distinguem e a preferência pela menor
   edição, o sistema raramente propõe um "conserto" que só passa nos testes visíveis. Quando não sabe, não propõe.
+
+## R1 — Portar para Rust? (medido e decidido)
+
+**Medições atuais** (Python, prioridade baixa, a máquina do usuário):
+
+| Operação | Tempo |
+|---|---|
+| Pedido em português ao builder (entender + planejar + executar) | ~0,1 s |
+| Montar o conhecimento do código do builder-6 (320 arquivos) | ~19 s, uma vez por sessão |
+| Pergunta sobre o código (definição, usos, impacto) | 0,00–0,03 s |
+| Atualização incremental de um arquivo alterado | ~5 s |
+| Gerar e verificar um projeto de vários arquivos | ~2 s |
+
+**Decisão:** não portar agora.
+- O uso interativo já responde em frações de segundo.
+- Os custos que pesam são a montagem inicial do índice (19 s) e o incremental (5 s). Os dois vêm de o motor recalcular
+  por predicado, não da linguagem (achado M3-7). A primeira melhoria é algorítmica (manutenção por tupla, DRed); o porte
+  em Rust vem depois, com a mesma bateria diferencial do M1.
+- Não há toolchain de Rust na máquina. Instalá-lo exige download, que depende de autorização do usuário.
