@@ -330,3 +330,34 @@ A divergência restante é o `default` sintético do `typescript` 7 (pacote nati
 - **Vocabulário do catálogo.** "Cor de fundo" não é reconhecida, porque o builder chama `background-color` de "Fundo".
   Aprender sinônimos por definição é o M8.
 - **Gerador escrito por mim.** A diversidade de paráfrase humana real só virá com o uso.
+
+## M6 (parcial) — Reconstruir corpos de funções apagadas a partir de exemplos
+
+**Método:**
+- **Tarefas:** funções pequenas e puras (`return <expressão>`) da biblioteca padrão e dos pacotes instalados.
+  - O oráculo é a própria função original, executada em entradas geradas.
+  - A tarefa recebe 6 exemplos de treino e é julgada em 30 entradas que nunca viu.
+- **Sintetizador** (`nucleo/synth/enumerate.py`):
+  - enumeração de baixo para cima por níveis de custo, com equivalência observacional;
+  - constantes tiradas dos exemplos;
+  - opcionalmente, uma gramática probabilística contada no corpo de código, sem o arquivo da tarefa.
+- **SyGuS e MBPP** (as referências do plano) exigem download, que depende de autorização do usuário.
+
+**Resultados, em ordem cronológica:**
+
+| Rodada | Uniforme | Com prior contado | O que mudou |
+|---|---|---|---|
+| 1 | 26,0% | 43,2% | enumerador ineficiente (combinava tudo com tudo) |
+| 2 | 68,5% | 73,3% | enumeração por níveis de custo |
+| 3 (amostra de 63 tarefas) | **57,1%** | **57,1%** | testes corrigidos: entradas que exercitam o corpo original; tarefas que a identidade já passava foram descartadas |
+
+**Leitura honesta:**
+- **A rodada 2 estava inflada.** Por exemplo, `str.replace('\\', '\\\\')` era "reconstruído" como `str`, porque as
+  entradas de teste nunca continham barra invertida.
+- **O prior deixou de fazer diferença.** Com os testes corrigidos, a vantagem da gramática contada desaparece nesta
+  amostra: as tarefas que restam são pequenas demais para ela importar.
+- **Não é geração de código útil ainda.** A síntese resolve expressões curtas (operadores, métodos de string, tuplas).
+  Gerar e corrigir código com vários arquivos, como no plano (modelo → geradores, clichês, reparo), não foi feito.
+
+**Custo:** a rodada completa travou o computador do usuário. Os experimentos agora rodam em prioridade baixa, em
+amostras.

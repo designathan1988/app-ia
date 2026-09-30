@@ -17,6 +17,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from nucleo.session import low_priority  # noqa: E402
 from nucleo.synth.enumerate import synthesize  # noqa: E402
 from nucleo.synth.prior import CACHE, Prior, count_corpus, load_counts  # noqa: E402
 from nucleo.synth.tasks import SAFE_BUILTINS, build_tasks, corpus_files  # noqa: E402
@@ -40,9 +41,10 @@ def holds(params, source, examples) -> bool:
     return True
 
 
-def main(limit_s: float = 5.0):
+def main(limit_s: float = 5.0, every: int = 1):
+    low_priority()
     counts = load_counts() if CACHE.exists() else count_corpus(corpus_files())
-    tasks = build_tasks()
+    tasks = build_tasks()[::every]
     c = collections.Counter()
     rows = []
     t0 = time.time()
@@ -74,4 +76,5 @@ def main(limit_s: float = 5.0):
 
 
 if __name__ == "__main__":
-    main(float(sys.argv[1]) if len(sys.argv) > 1 else 5.0)
+    every = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--cada=")), 1)
+    main(float([a for a in sys.argv[1:] if not a.startswith("--")][0]) if len(sys.argv) > 1 else 5.0, every)
