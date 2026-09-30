@@ -1,0 +1,30 @@
+{
+  "fonte": "Escrito pelo nucleo. Os verbos-núcleo vêm dos rótulos de comando do catálogo pt-BR do builder-6 (Inserir, Excluir, Duplicar, Renomear, Mover, Definir); os demais são sinônimos de uso corrente. Cada quadro liga lemas a um ESTADO-RESULTADO (o que deve valer depois), nunca a um comando: quem acha o comando é o planejador.",
+  "quadros": [
+    {"id": "existir", "resultado": "added", "objeto": "tipo", "local": true,
+     "verbos": ["inserir", "colocar", "adicionar", "pôr", "incluir", "criar", "acrescentar", "botar", "pôr"]},
+    {"id": "remover", "resultado": "removed", "objeto": "no",
+     "verbos": ["apagar", "remover", "excluir", "deletar", "tirar", "eliminar"]},
+    {"id": "mover", "resultado": "moved", "objeto": "no", "local": true,
+     "verbos": ["mover", "levar", "passar", "colocar", "pôr", "transferir", "mudar"]},
+    {"id": "estilo", "resultado": "style", "objeto": "propriedade", "valor": true,
+     "verbos": ["definir", "mudar", "alterar", "trocar", "deixar", "tornar", "colocar", "pôr", "ajustar", "configurar", "usar", "aplicar", "botar"]},
+    {"id": "texto", "resultado": "field:text", "objeto": "campo:texto", "valor": true,
+     "verbos": ["escrever", "mudar", "alterar", "trocar", "definir", "colocar", "pôr", "deixar"]},
+    {"id": "nome", "resultado": "field:name", "objeto": "campo:nome", "valor": true,
+     "verbos": ["mudar", "alterar", "trocar", "definir", "colocar", "pôr"]},
+    {"id": "renomear", "resultado": "field:name", "objeto": "no", "valor": true,
+     "verbos": ["renomear", "chamar", "nomear"]},
+    {"id": "atributo", "resultado": "field:attributes", "objeto": "atributo", "valor": true,
+     "verbos": ["definir", "mudar", "alterar", "trocar", "colocar", "pôr", "deixar", "configurar"]}
+  ],
+  "locais": {
+    "dentro": ["em", "dentro de", "para dentro de", "para", "a"],
+    "depois": ["depois de", "após", "abaixo de", "em seguida a", "para depois de"],
+    "antes": ["antes de", "acima de", "para antes de"],
+    "inicio": ["no início de", "no começo de", "em o início de", "em o começo de", "para o início de", "para o começo de"],
+    "fim": ["no fim de", "no final de", "em o fim de", "em o final de", "para o fim de", "para o final de"]
+  },
+  "valor_casos": ["para", "como", "em", "com", "de"],
+  "campos": {"texto": "text", "conteúdo": "text", "nome": "name"}
+}

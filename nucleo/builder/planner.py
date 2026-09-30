@@ -261,6 +261,49 @@ class Planner:
                     best = (h2, s2, plan + [cand])
         return PlanResult(False, best[2], best[0][1], expansions, tries, why)
 
+    def solve_constraints(self, state: int, items: list[dict]) -> PlanResult:
+        """Reach a goal given as constraint items (what language understanding produces), not as a document.
+        Success: every constraint holds and the builder's validator accepts every committed state."""
+        self.b.call("constraints", state=state, items=items)
+        h0 = self.b.call("unsatisfied", state=state)["count"]
+        frontier = [(h0, 0, state, [])]
+        best = (h0, state, [])
+        tries = expansions = 0
+        why: dict = {}
+        seen = set()
+        while frontier and expansions < self.max_expansions:
+            h, depth, st, plan = heapq.heappop(frontier)
+            if h == 0:
+                return PlanResult(True, plan, 0, expansions, tries, why)
+            expansions += 1
+            u = self.b.call("unsatisfied", state=st)
+            by_need, proofs = self.relevance(u["items"])
+            cands = self.candidates(u["items"], u["selection"], by_need)
+            if not cands:
+                continue
+            res = self.b.call("try", state=st, candidates=cands, keep=True)["results"]
+            tries += len(cands)
+            children = []
+            for cand, r in zip(cands, res):
+                if r["status"] != "done" or not r.get("changed") or r.get("problems"):
+                    continue
+                if r["unsatisfied"] >= h:
+                    continue
+                children.append((r["unsatisfied"], cand, r["state"]))
+            children.sort(key=lambda x: (x[0], len(json.dumps(x[1]))))
+            for h2, cand, s2 in children[: self.beam]:
+                key = (h2, json.dumps(cand, sort_keys=True, default=str))
+                if key in seen:
+                    continue
+                seen.add(key)
+                for a in cand.get("sequence", [cand]):
+                    if a["command"] in proofs:
+                        why.setdefault(a["command"], proofs[a["command"]])
+                heapq.heappush(frontier, (h2, depth + 1, s2, plan + [cand]))
+                if h2 < best[0]:
+                    best = (h2, s2, plan + [cand])
+        return PlanResult(False, best[2], best[0], expansions, tries, why)
+
     def _observe(self, cand: dict, r: dict) -> None:
         """Online learning: every simulated single command adds evidence to the effect model."""
         if "sequence" in cand or r["status"] != "done" or not r.get("fields"):

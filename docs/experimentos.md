@@ -256,3 +256,77 @@ A divergência restante é o `default` sintético do `typescript` 7 (pacote nati
 - **SearXNG local:** exige instalar Docker ou o serviço; é decisão do usuário.
 - **Fatos de BCD/webref:** os dados já estão no `node_modules` do builder. Entram com o M6, onde servem para validar o
   CSS gerado.
+
+## X2 — Analisador sintático linear, sem rede neural, para o português
+
+**Método:**
+- **Etiquetador:** perceptron médio, com atributos de palavra, afixos, forma e vizinhos, mais a **classe de
+  ambiguidade do MorphoBr** (as categorias possíveis de cada palavra).
+- **Analisador:** arc-hybrid com oráculo dinâmico (Goldberg & Nivre) e um rotulador de relações separado. Os modelos
+  são dicionários de pesos em JSON.
+- **Treino:** Bosque + PetroGold + Porttinari, com 20.081 frases e 10 épocas (~13 min em Python puro).
+- **Juiz:** as divisões de teste dos próprios treebanks, anotadas por humanos, com tokenização-ouro e sem contar a
+  pontuação.
+
+| Treebank | UPOS | UAS | LAS | LAS com etiquetas-ouro |
+|---|---|---|---|---|
+| Bosque | 95,48% | 84,45% | 77,28% | 80,16% |
+| PetroGold | 98,05% | 88,39% | 82,71% | 84,24% |
+| Porttinari (PT-BR) | 96,69% | 86,49% | **80,07%** | 82,92% |
+| imperativas (12 frases de teste) | 93,10% | 81,28% | 70,94% | — |
+
+- **Efeito dos atributos do MorphoBr:** +0,3 a +0,5 no LAS e +3,5 no UAS das imperativas.
+- **Referência neural:** UDPipe 2 e Stanza ficam em LAS ~80–95.
+- **Decisão prevista no plano (LAS < 80 em parte dos casos):** a semântica não confia cegamente na árvore.
+  - O léxico reordena o predicado quando a etiqueta erra ("ajuste": substantivo para o etiquetador, subjuntivo de
+    "ajustar" para o MorphoBr).
+  - Os argumentos são lidos por pedaços entre preposições, então uma anexação errada não apaga um argumento.
+
+## M5 — Português → restrições → planejador → documento do builder
+
+**Método:**
+- **Compreensão** (`nucleo/lang/understand.py`):
+  - tokenização com literais protegidos (funções CSS, cores, medidas, aspas);
+  - análise sintática do X2;
+  - predicado e argumentos;
+  - ancoragem no **léxico construído do catálogo pt-BR e do manifesto do builder** (`lexicon.py`: tipos, 751 nomes de
+    propriedade CSS com os do W3C, atributos, estados, breakpoints);
+  - **abdução ponderada** sobre os quadros verbais (`frames.json`: estado-resultado, nunca comando).
+- **Decisão:** executar, perguntar ou "não entendi".
+  - Um verbo desconhecido **nunca** executa.
+  - Um referente com vários candidatos **nunca** é escolhido em silêncio.
+  - Uma palavra ignorada que nomeia algo do builder custa caro.
+- **Execução:** as restrições são o objetivo do planejador do M2, e o plano sai da busca ("inserir e depois editar o
+  texto" surge sozinho).
+- **Juiz:** o documento esperado de cada cenário do builder, pelo `matchDocument` do builder.
+- **Pedidos de teste:** gerados por um realizador separado (`tests/gen/requests.py`), com variação de verbo,
+  modo ("insira", "insere", "inserir", "você pode…?", "por favor", "quero que você…"), ordem valor-primeiro,
+  contrações, camadas e nomes inventados. Metas não descritíveis numa frase (listas de sombra, campos fora do padrão)
+  são puladas, nunca descritas pela metade.
+
+**Resultado** (meta do §11: top-1 ≥ 80%, erro silencioso ≤ 2%):
+
+| Variante | Pedidos | top-1 | Erro silencioso | Perguntou ou não entendeu |
+|---|---|---|---|---|
+| frases originais | 664 | **88,1%** | **0,0%** | 9,9% |
+| … cenários 1–300 (ajuste) | 259 | 94,2% | 0,0% | |
+| … cenários 301+ | 405 | 84,2% | 0,0% | |
+| nomes de nós inventados | 571 | 88,6% | 0,0% | 9,5% |
+| frases novas (outra semente) | 662 | 87,6% | 0,0% | 10,6% |
+
+**Honestidade sobre a validação:**
+- As regras foram ajustadas olhando os cenários 1–300.
+- Numa segunda rodada, olhei os **erros silenciosos** dos cenários 301+ para achar causas gerais:
+  - o tokenizador que partia `blur(4px)`;
+  - a porta de CSS sem validação;
+  - estados de estilo ignorados;
+  - campos do nó fora da comparação.
+
+  Antes dessa rodada, os cenários 301+ davam top-1 57,0% e **12,0% de erro silencioso**.
+- As variantes com nomes inventados e com frases novas foram geradas depois de todos os ajustes.
+
+**Limites:**
+- **Frases de um só pedido.** Uma frase com "e também" não é executada pela metade.
+- **Vocabulário do catálogo.** "Cor de fundo" não é reconhecida, porque o builder chama `background-color` de "Fundo".
+  Aprender sinônimos por definição é o M8.
+- **Gerador escrito por mim.** A diversidade de paráfrase humana real só virá com o uso.

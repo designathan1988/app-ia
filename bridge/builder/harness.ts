@@ -11,7 +11,7 @@ import { rulesFromManifest, validateDocument } from '/src/core/document/validate
 import { manualClock } from '/src/core/ports/clock.ts';
 import { sequentialIds } from '/src/core/ports/ids.ts';
 import { noLayout } from '/src/core/ports/layout.ts';
-import { anyCss } from '/src/core/ports/css.ts';
+import { lexer as cssLexer } from '/node_modules/css-tree/lib/index.js';
 import { createStore } from '/src/core/store/store.ts';
 import { siteFiles } from '/src/core/export/export.ts';
 import { translate } from '/src/i18n/index.ts';
@@ -21,6 +21,21 @@ import { INITIAL_PREFERENCES } from '/src/editor/preferences/preferences.ts';
 import { activeLayer } from '/src/editor/view/style-state.ts';
 
 export const RULES = rulesFromManifest(manifest.elements, manifest.properties, manifest.html);
+
+// Whether a value is valid for a property, by the CSS grammars of the W3C specifications (css-tree over webref):
+// the headless stand-in for the browser's CSS.supports, so a value the browser would refuse is refused here too.
+// A property the grammars do not know (custom properties, very new ones) is not blocked.
+export const cssGrammar = {
+  supports(property: string, value: string): boolean {
+    if (property.startsWith('--')) return true;
+    try {
+      if (!cssLexer.getProperty(property)) return true;
+      return cssLexer.matchProperty(property, value).error === null;
+    } catch {
+      return false;
+    }
+  },
+};
 
 export function createHeadless(document?: DocumentJson, selection: Selection = [], locale: 'en' | 'pt-BR' = 'pt-BR', ui?: unknown) {
   const ids = sequentialIds('ai');
@@ -38,7 +53,7 @@ export function createHeadless(document?: DocumentJson, selection: Selection = [
     ids,
     words: (_ui: unknown, key: any, params?: any) => translate(locale, key, params),
     layout: noLayout,
-    css: anyCss,
+    css: cssGrammar,
     layer: activeLayer,
     initial: { document: initialDoc, selection, ui: ui ?? initialEditorUi(preferences as any) },
     freeze: true, // every committed state deep-frozen and validated, as in development and tests
@@ -160,7 +175,8 @@ export function diffItems(before: any, goalOrAfter: any): Item[] {
   // nodes of `after` with no id: added by a goal, under the nearest parent that has one
   const walkNew = (node: any, parentId: string | null, index: number) => {
     if (node && typeof node.id !== 'string') {
-      out.push({ kind: 'added', id: null, parent: parentId, index, type: node.type, name: node.name, tag: node.tag, text: node.text ?? null, styles: node.styles ?? {}, attributes: node.attributes ?? {}, classes: node.classes ?? [] });
+      const { children: _c, ...fields } = node;
+      out.push({ kind: 'added', id: null, parent: parentId, index, type: node.type, name: node.name, tag: node.tag, text: node.text ?? null, styles: node.styles ?? {}, attributes: node.attributes ?? {}, classes: node.classes ?? [], node: fields });
     }
     const pid = typeof node?.id === 'string' ? node.id : parentId;
     (node?.children ?? []).forEach((c: any, i: number) => walkNew(c, pid, i));
@@ -205,4 +221,77 @@ export function distance(items: Item[]): number {
     else n += 1;
   }
   return n;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Goals as constraints (what language understanding produces): the same item vocabulary as diffItems, checked
+// against a document. "added" is judged relative to the start document (a node that did not exist then).
+// ---------------------------------------------------------------------------------------------------------------
+export function satisfied(item: any, doc: any, start: any): boolean {
+  const now = indexNodes(doc);
+  const before = indexNodes(start);
+  const node = typeof item.id === 'string' ? now.get(item.id) : undefined;
+  switch (item.kind) {
+    case 'style':
+      return !!node && (node.node.styles?.[item.breakpoint]?.[item.state]?.[item.property] ?? null) === item.value;
+    case 'field': {
+      if (!node) return false;
+      const v = node.node[item.field];
+      if (item.value && typeof item.value === 'object' && !Array.isArray(item.value)) {
+        return !!v && Object.entries(item.value).every(([k, x]) => same(v[k], x));
+      }
+      return same(v, item.value);
+    }
+    case 'removed':
+      return !now.has(item.id);
+    case 'moved':
+    case 'reordered':
+      return !!node && node.parent === item.parent && (item.index === undefined || item.index === null || node.index === item.index);
+    case 'added':
+      return addedMatch(item, doc, start)?.missing.length === 0;
+    default:
+      return false;
+  }
+}
+
+// The new node that best realises an "added" constraint: right type and place, with the extra fields it still lacks
+// (text, name). null when no new node of that type is in that place.
+const ADDED_EXTRAS = ['text', 'name'];
+export function addedMatch(item: any, doc: any, start: any): { id: string; missing: string[] } | null {
+  const now = indexNodes(doc);
+  const before = indexNodes(start);
+  let best: { id: string; missing: string[] } | null = null;
+  for (const [id, n] of now) {
+    if (before.has(id)) continue;
+    if (item.type && n.node.type !== item.type) continue;
+    if (item.parent && n.parent !== item.parent) continue;
+    if (item.index !== undefined && item.index !== null && n.index !== item.index) continue;
+    const missing = ADDED_EXTRAS.filter((f) => item[f] !== undefined && item[f] !== null && n.node[f] !== item[f]);
+    if (!best || missing.length < best.missing.length) best = { id, missing };
+  }
+  return best;
+}
+
+// Graded distance of a constraint: 0 when it holds; for "added", the extras still missing on the new node, or
+// 1 + all extras when the node is not there yet.
+export function constraintDistance(item: any, doc: any, start: any): number {
+  if (item.kind !== 'added') return satisfied(item, doc, start) ? 0 : 1;
+  const m = addedMatch(item, doc, start);
+  const extras = ADDED_EXTRAS.filter((f) => item[f] !== undefined && item[f] !== null).length;
+  return m ? m.missing.length : 1 + extras;
+}
+
+// What is still needed, as items the planner can act on: an "added" node that exists but lacks its text or name
+// becomes field items on that very node.
+export function pendingItems(items: any[], doc: any, start: any): any[] {
+  const out: any[] = [];
+  for (const it of items) {
+    if (it.kind === 'added') {
+      const m = addedMatch(it, doc, start);
+      if (m && m.missing.length === 0) continue;
+      if (m) for (const f of m.missing) out.push({ kind: 'field', id: m.id, field: f, value: it[f] });
+      else out.push(it);
+    } else if (!satisfied(it, doc, start)) out.push(it);
+  }
+  return out;
 }

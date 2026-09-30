@@ -38,6 +38,8 @@ let store = h.createHeadless();
 let saved = new Map();
 let nextState = 0;
 let goal = null;
+let constraints = null;
+let constraintStart = null;
 let setupReq = null;
 const pathOf = (id) => {
   const out = [];
@@ -113,6 +115,8 @@ for await (const line of rl) {
         setupReq = req;
         saved = new Map();
         nextState = 0;
+        goal = null;
+        constraints = null;
         const st = base();
         out({ state: save(null, null), selection: st.getState().selection });
         break;
@@ -144,12 +148,30 @@ for await (const line of rl) {
           }
           res.problems = h.validate(now.document, now.selection).length;
           res.changed = now.document !== before.document;
+          if (constraints) res.unsatisfied = constraints.reduce((n, it) => n + h.constraintDistance(it, now.document, constraintStart), 0);
           if (r.confirmed) res.confirmed = true;
           if (req.fields && res.changed !== undefined) res.fields = h.itemFields(h.diffItems(before.document, now.document));
           if (req.keep && r.status === 'done') res.state = save(req.state, c);
           results.push(res);
         }
         out({ results });
+        break;
+      }
+      case 'goalDocument':
+        out({ document: goal });
+        break;
+      case 'constraints': {
+        // a goal given as constraint items (from language understanding) instead of a document
+        constraints = req.items;
+        constraintStart = restore(req.state).getState().document;
+        out({ ok: true });
+        break;
+      }
+      case 'unsatisfied': {
+        const st = restore(req.state).getState();
+        const items = h.pendingItems(constraints, st.document, constraintStart);
+        const count = constraints.reduce((n, it) => n + h.constraintDistance(it, st.document, constraintStart), 0);
+        out({ items, selection: st.selection, count });
         break;
       }
       case 'goalDiff': {
