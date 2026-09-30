@@ -27,6 +27,7 @@ command is chosen by the planner, not here.
 from __future__ import annotations
 
 import json
+import re
 import pathlib
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -761,6 +762,14 @@ def _definition(tokens: list[Token], text: str, world: World, by: str) -> Unders
         learned.add_verb(first, y, text, by)
         return Understanding(text, tokens, [], "aprendido",
                              f"Aprendi: «{first}» = «{y}» (sobre o elemento que você disser).")
+    structure = _structure_definition(y)
+    if structure is not None:
+        if isinstance(structure, str):
+            return Understanding(text, tokens, [], "nao_entendi", f"Não aprendi «{x}»: {structure}.")
+        head, parts = structure
+        learned.add_structure(x, head, parts, text, by)
+        said = ", ".join(p["type"] + (f' «{p["text"]}»' if p.get("text") else "") for p in parts)
+        return Understanding(text, tokens, [], "aprendido", f"Aprendi: «{x}» = {head} com {said}.")
     seq = lexicon.lemma_seq(y)
     hits = [e for e in lexicon.load() if e.lemmas == seq and e.kind in KINDS]
     if not hits:
@@ -768,6 +777,52 @@ def _definition(tokens: list[Token], text: str, world: World, by: str) -> Unders
                              f"Não aprendi «{x}»: «{y}» não é algo que eu conheça no builder.")
     learned.add_phrase(x, hits[0].kind, hits[0].id, text, by)
     return Understanding(text, tokens, [], "aprendido", f"Aprendi: «{x}» = «{hits[0].label}» ({hits[0].id}).")
+
+
+def _split_outside_quotes(text: str) -> list[str]:
+    parts, cur, quoted = [], "", False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "\"“”":
+            quoted = not quoted
+        if not quoted and (ch == "," or text[i:i + 3] == " e "):
+            parts.append(cur.strip())
+            cur = ""
+            i += 1 if ch == "," else 3
+            continue
+        cur += ch
+        i += 1
+    if cur.strip():
+        parts.append(cur.strip())
+    return parts
+
+
+def _type_of(phrase: str):
+    hits = [(e, n) for e, n in lexicon.match(lexicon.lemma_seq(phrase), {"tipo"}) if not e.id.startswith("estrutura:")]
+    return hits[0] if hits else None
+
+
+def _structure_definition(body: str):
+    """ "um artigo com um título com o texto "X" e um parágrafo" -> (head type, [{"type", "text"?}]); a message when
+    it looks like a structure but a part is not understood; None when it is not a structure definition."""
+    m = re.match(r"(?:um|uma)\s+(.+?)\s+(?:com|contendo)\s+(.+)$", body.strip(), flags=re.I)
+    if not m:
+        return None
+    head = _type_of(m.group(1))
+    if head is None or head[1] != len(lexicon.lemma_seq(m.group(1))):
+        return None
+    parts = []
+    for raw in _split_outside_quotes(m.group(2)):
+        pm = re.match(r"(?:um|uma|dois|duas)?\s*(.+?)(?:\s+com\s+o\s+texto\s+[\"“](.*)[\"”])?$", raw.strip(), flags=re.I)
+        t = _type_of(pm.group(1)) if pm else None
+        if t is None or t[1] != len(lexicon.lemma_seq(pm.group(1))):
+            return f"não conheço a parte «{raw}»"
+        part = {"type": t[0].id}
+        if pm.group(2):
+            part["text"] = pm.group(2)
+        parts.append(part)
+    return head[0].id, parts
 
 
 def _analyses(word: str):

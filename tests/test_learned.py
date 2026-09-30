@@ -46,3 +46,21 @@ def test_forgetting(world):
     understand("cor de fundo significa fundo", world)
     assert learned.forget("cor de fundo")
     assert understand("mude a cor de fundo da seção Hero para #fff", world).decision != "executar"
+
+
+def test_a_taught_structure_is_built_whole(tmp_path, monkeypatch):
+    from nucleo.builder.client import Builder, walk
+    from nucleo.session import Session
+
+    monkeypatch.setattr(learned, "STORE", tmp_path / "vocabulario.json")
+    lexicon.load.cache_clear()
+    with Builder() as b:
+        s = Session(b)
+        assert s.ask("insira uma seção na página e depois renomeie a seção para Planos").ok
+        a = s.ask('card significa um artigo com um título com o texto "Plano" e um botão com o texto "Assinar"')
+        assert a.decision == "aprendido"
+        assert s.ask("insira um card na seção Planos").ok
+        nodes = [(n["type"], n.get("text")) for n in walk(s.document()["document"]["pages"][0]["tree"])]
+        assert nodes[2:] == [("article", None), ("heading", "Plano"), ("button", "Assinar")]
+        assert s.ask("herói significa uma seção com um carrossel mágico").decision == "nao_entendi"
+    lexicon.load.cache_clear()

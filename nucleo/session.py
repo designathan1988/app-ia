@@ -15,6 +15,7 @@ from .builder.client import Builder
 from .builder.effects import CACHE, learn, load_model
 from .builder.knowledge import load_domains
 from .builder.planner import Planner
+from .lang import learned
 from .lang.understand import World, split_clauses, understand
 
 
@@ -75,6 +76,8 @@ class Session:
             a = Answer(text, u.decision, u.message, [], False)
             self.history.append(a)
             return a
+        if any(str(c.get("type", "")).startswith("estrutura:") for c in u.best.constraints):
+            return self._build_structure(text, u)
         r = self.planner.solve_constraints(self.state, u.best.constraints)
         if not r.solved:
             a = Answer(text, "sem_plano", f"Entendi «{u.message}», mas não achei comandos que façam isso.", [], False)
@@ -91,6 +94,47 @@ class Session:
         else:
             self.state = st
             a = Answer(text, "executado", u.message, cmds, True)
+        self.history.append(a)
+        return a
+
+    def _solve(self, constraints: list) -> list | None:
+        r = self.planner.solve_constraints(self.state, constraints)
+        if not r.solved:
+            return None
+        st = self.state
+        for action in r.plan:
+            st = self.b.call("try", state=st, candidates=[action], keep=True)["results"][0]["state"]
+        self.state = st
+        return [a["command"] for c in r.plan for a in c.get("sequence", [c])]
+
+    def _build_structure(self, text: str, u) -> Answer:
+        """A taught composite element: the head where it was asked, then each part inside it, in order; all or
+        nothing."""
+        from .builder.client import walk
+
+        start = self.state
+        c = next(c for c in u.best.constraints if str(c.get("type", "")).startswith("estrutura:"))
+        name = c["type"].split(":", 1)[1]
+        spec = learned.structures()[name]
+        before = {n["id"] for p in self.document()["document"]["pages"] for n in walk(p["tree"])}
+        cmds = self._solve([{**c, "type": spec["cabeca"]}])
+        head_id = None
+        if cmds is not None:
+            doc = self.document()["document"]
+            new = [n for p in doc["pages"] for n in walk(p["tree"]) if n["id"] not in before]
+            head_id = next((n["id"] for n in new if n["type"] == spec["cabeca"]), None)
+        for i, part in enumerate(spec["partes"]):
+            if cmds is None or head_id is None:
+                break
+            more = self._solve([{"kind": "added", "type": part["type"], "parent": head_id, "index": i,
+                                 **({"text": part["text"]} if part.get("text") else {})}])
+            cmds = None if more is None else cmds + more
+        if cmds is None or self.b.validate(self.document()["document"]):
+            self.state = start
+            a = Answer(text, "sem_plano", f"Não consegui montar «{name}»; nada foi feito.", [], False)
+        else:
+            a = Answer(text, "executado", f"{u.message} («{name}»: {spec['cabeca']} com "
+                                          f"{len(spec['partes'])} parte(s))", cmds, True)
         self.history.append(a)
         return a
 

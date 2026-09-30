@@ -113,10 +113,12 @@ def load(root: str | None = None) -> list[Entry]:
     for name in sorted(css_names):
         out.append(Entry("propriedade", name, name, (name,)))
     # phrases the user taught ("cor de fundo significa fundo"): another label for an entity already grounded
-    from .learned import phrases
+    from .learned import phrases, structures
 
     for phrase, d in phrases().items():
         out.append(Entry(d["tipo"], d["entidade"], phrase, lemma_seq(phrase)))
+    for name in structures():  # a taught composite element is a type too ("insira um card ...")
+        out.append(Entry("tipo", f"estrutura:{name}", name, lemma_seq(name)))
     return out
 
 

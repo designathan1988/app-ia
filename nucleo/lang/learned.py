@@ -28,7 +28,7 @@ STORE = pathlib.Path(__file__).resolve().parents[2] / "data" / "vocabulario.json
 def _load() -> dict:
     if STORE.exists():
         return json.loads(STORE.read_text(encoding="utf-8"))
-    return {"verbos": {}, "expressoes": {}}
+    return {"verbos": {}, "expressoes": {}, "estruturas": {}}
 
 
 def _save(d: dict) -> None:
@@ -38,6 +38,19 @@ def _save(d: dict) -> None:
 
 def verbs() -> dict:
     return _load()["verbos"]
+
+
+def structures() -> dict:
+    return _load().get("estruturas", {})
+
+
+def add_structure(name: str, head: str, parts: list[dict], sentence: str, by: str) -> None:
+    """A composite element: `head` (an element type) holding `parts` ([{"type", "text"?}], in order)."""
+    d = _load()
+    d.setdefault("estruturas", {})[name] = {"cabeca": head, "partes": parts, "frase": sentence, "por": by,
+                                           "quando": datetime.datetime.now().isoformat(timespec="seconds")}
+    _save(d)
+    lexicon.load.cache_clear()
 
 
 def phrases() -> dict:
@@ -61,7 +74,7 @@ def add_phrase(phrase: str, kind: str, entity: str, sentence: str, by: str) -> N
 
 def forget(word: str) -> bool:
     d = _load()
-    hit = d["verbos"].pop(word, None) or d["expressoes"].pop(word, None)
+    hit = d["verbos"].pop(word, None) or d["expressoes"].pop(word, None) or d.setdefault("estruturas", {}).pop(word, None)
     _save(d)
     lexicon.load.cache_clear()
     return hit is not None
