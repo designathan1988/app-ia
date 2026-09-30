@@ -123,3 +123,23 @@ def test_sample_end_to_end_judged_by_the_builder(planner):
     print(f"\n{c}")
     assert c["pedidos"] > 30
     assert c["certo"] >= 0.8 * c["pedidos"] and c["erro"] <= 0.02 * c["pedidos"]
+
+
+@pytest.mark.parametrize("text, expected", [
+    # accents omitted (restored through MorphoBr), typing slips tolerated
+    ("insira um titulo na secao Hero", {"kind": "added", "type": "heading", "parent": "n-hero"}),
+    ("coloca o titlo Title a direita", {"kind": "style", "property": "text-align", "value": "right"}),
+    ("poe o paragrafo Intro na esquerda", {"kind": "style", "property": "text-align", "value": "left"}),
+    # values named in Portuguese (lexicon induced from MDN pt-BR), property chosen by the element
+    ("deixe o título Title negrito", {"kind": "style", "property": "font-weight", "value": "bold"}),
+    # possession: "o texto de X" names X; a value glued at the end of the naming phrase
+    ("deixa o conteudo do titulo Title centralizado", {"kind": "style", "property": "text-align", "value": "center"}),
+    ("deixe o texto do paragrafo Intro em negrito", {"kind": "style", "id": "n-intro", "property": "font-weight"}),
+    # a meaningful word is still a literal when nothing else can use it (a new name)
+    ("renomeie a seção Hero para Topo", {"kind": "field", "field": "name", "value": "Topo"}),
+])
+def test_general_mechanisms(aurora, text, expected):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", u.message
+    c = u.best.constraints[0]
+    assert {k: c.get(k) for k in expected} == expected, (text, c)

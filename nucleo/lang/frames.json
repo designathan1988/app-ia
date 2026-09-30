@@ -15,6 +15,9 @@
      "verbos": ["mudar", "alterar", "trocar", "definir", "colocar", "pôr"]},
     {"id": "renomear", "resultado": "field:name", "objeto": "no", "valor": true,
      "verbos": ["renomear", "chamar", "nomear"]},
+    {"id": "estilo_por_valor", "resultado": "style", "objeto": "no", "valor_rotulado": true,
+     "verbos": ["colocar", "deixar", "pôr", "tornar", "alinhar", "botar", "mudar", "ajustar", "posicionar", "jogar",
+                "definir", "fazer", "mover", "mandar", "levar", "passar", "trocar", "alterar"]},
     {"id": "atributo", "resultado": "field:attributes", "objeto": "atributo", "valor": true,
      "verbos": ["definir", "mudar", "alterar", "trocar", "colocar", "pôr", "deixar", "configurar"]}
   ],

@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 
 from . import learned, lexicon
+from .values import fold
+from .values import index as value_index
 from .morph import lemmas as morph_lemmas
 from .syntax import load_models
 from .tokenize import is_literal, literal_value, tokenize
@@ -40,7 +42,7 @@ from .tokenize import is_literal, literal_value, tokenize
 FRAMES = json.loads((pathlib.Path(__file__).with_name("frames.json")).read_text(encoding="utf-8"))
 MODALS = {"poder", "querer", "gostar", "precisar", "conseguir", "dever", "ir", "favor"}
 PRONOUNS = {"isso", "isto", "aquilo", "ele", "ela", "este", "esta", "esse", "essa", "selecionado", "selecionada",
-            "seleção"}
+            "selecao"}
 COST = {"verbo_fora_do_quadro": 4.0, "referente_ambiguo": 2.5, "referente_por_tipo": 0.5,
         "referente_pela_selecao": 0.3, "referente_nao_resolvido": 5.0, "valor_ausente": 5.0,
         "palavra_sem_explicacao": 1.0, "tipo_diferente_do_nome": 2.0, "local_ausente": 0.5,
@@ -173,7 +175,9 @@ class Piece:
     def lemmas(self) -> tuple:
         # the same lemmatization as the lexicon's labels, whatever tag the word got ("prevista": a participle to the
         # tagger, an adjective in the label "Mudança prevista")
-        return tuple(lexicon.lemma_of(t.form) for t in self.words if not is_literal(t.form))
+        # articles are not content, whatever tag the tagger gave them ("o" tagged as a pronoun)
+        return tuple(lexicon.lemma_of(t.form) for t in self.words
+                     if not is_literal(t.form) and t.form.lower() not in lexicon.STOP)
 
 
 def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
@@ -196,13 +200,13 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
     current = Piece((), [])
     for k, t in enumerate(tokens):
         nxt = tokens[k + 1] if k + 1 < len(tokens) else None
-        if t.i not in used and t.lemma.lower() in _locution_heads() and nxt is not None and nxt.upos == "ADP":
+        if t.i not in used and fold(t.lemma) in _locution_heads() and nxt is not None and nxt.upos == "ADP":
             # a locative head right before a preposition opens a new place phrase ("... depois do título")
             if current.words:
                 pieces.append(current)
-                current = Piece((t.lemma.lower(),), [])
+                current = Piece((fold(t.lemma),), [])
             else:
-                current = Piece(current.case + (t.lemma.lower(),), [])
+                current = Piece(current.case + (fold(t.lemma),), [])
             continue
         if t.i == pred.i:
             # before the verb: a fronted place ("na seção Hero, coloque ...") is an argument; loose words
@@ -217,14 +221,14 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
         if t.i in used or t.upos in ("PUNCT", "DET") or t.lemma in ("favor",):
             continue
         if t.upos == "ADP":
-            if current.words and all(w.lemma.lower() in _locution_heads() for w in current.words):
+            if current.words and all(fold(w.lemma) in _locution_heads() for w in current.words):
                 # "depois de", "para o início de": head + preposition form one complex preposition
-                current = Piece(current.case + tuple(w.lemma.lower() for w in current.words) + (t.lemma.lower(),), [])
+                current = Piece(current.case + tuple(fold(w.lemma) for w in current.words) + (fold(t.lemma),), [])
             elif current.words:
                 pieces.append(current)
-                current = Piece((t.lemma.lower(),), [])
+                current = Piece((fold(t.lemma),), [])
             else:
-                current = Piece(current.case + (t.lemma.lower(),), [])
+                current = Piece(current.case + (fold(t.lemma),), [])
             continue
         current.words.append(t)
     if current.words or current.case:
@@ -298,6 +302,22 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
     return [], COST["referente_nao_resolvido"], ["referente não encontrado"], explained
 
 
+LITERAL_COST = 2.0
+
+
+def _literal_cost(pieces: list[Piece], v) -> float:
+    """Taking unquoted words that mean something known as a literal value costs (the meaning is likelier)."""
+    if v is None or not isinstance(v[0], str):
+        return 0.0
+    words = pieces[v[1]].words
+    if any(is_literal(t.form) for t in words):
+        return 0.0  # quoted or CSS-like: a literal by its form
+    lem = pieces[v[1]].lemmas
+    meaningful = any(x in value_index() for x in lem) or bool(
+        lexicon.match(lem, {"tipo", "propriedade", "atributo", "estado", "breakpoint"}))
+    return LITERAL_COST if meaningful else 0.0
+
+
 def _value(pieces: list[Piece], used: set, prop: str | None = None, bare_ok: bool = False) -> tuple[object, int] | None:
     """A literal value (quoted, CSS-like, number), or a bare word the property declares among its values. With
     `bare_ok` (the property came in a phrase with "em": "coloque relative na posição ..."), the free bare phrase is
@@ -327,7 +347,10 @@ def _value(pieces: list[Piece], used: set, prop: str | None = None, bare_ok: boo
         if k in used or not p.case or p.case[-1] not in FRAMES["valor_casos"] or not p.words:
             continue
         # the words of a "para/como/em ..." phrase that grounds to nothing: the value as said (a CSS keyword, a
-        # name). If it is not valid, the builder refuses it when the plan runs: never a silent change
+        # name). If it is not valid, the builder refuses it when the plan runs: never a silent change.
+        # Words that also mean something known (a type, a property, a named CSS value such as "negrito") can
+        # still be a literal (a new name "Topo"), but reading them literally costs: when another reading uses their
+        # meaning, that reading wins (see LITERAL_COST at the callers).
         if prop is not None and lexicon.match(p.lemmas, {"tipo", "propriedade", "atributo", "estado", "breakpoint"}):
             continue
         return " ".join(t.form for t in p.words), k
@@ -438,7 +461,40 @@ def _unexplained(pieces: list[Piece], used: set, partial: dict) -> float:
     return cost
 
 
+@lru_cache(maxsize=1)
+def _property_facts() -> dict:
+    """property -> (appliesTo, essential), and element type -> content kind, from the builder's manifest."""
+    import json as _json
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    man = pathlib.Path(DEFAULT_BUILDER) / "manifest"
+    props = _json.loads((man / "properties.json").read_text(encoding="utf-8"))["properties"]
+    elements = _json.loads((man / "elements.json").read_text(encoding="utf-8"))["elements"]
+    return ({p["id"]: (p.get("appliesTo", "always"), bool(p.get("essential"))) for p in props},
+            {e["id"]: e.get("content") for e in elements})
+
+
+def _value_candidates(piece: Piece, node_type: str | None) -> list[tuple[str, str, float]]:
+    """(property, value, cost) for a phrase that names a CSS value in Portuguese ("à direita", "em negrito"), by the
+    value lexicon induced from MDN; cheaper when the property applies to the element and is an essential one."""
+    props, contents = _property_facts()
+    out = []
+    for lem in piece.lemmas:
+        for prop, value in value_index().get(lem, []):
+            applies, essential = props.get(prop, ("always", False))
+            cost = 0.0 if essential else 1.0  # the builder shows essential properties first: the likelier meaning
+            if applies == "text" and contents.get(node_type) != "text":
+                cost += 3.0
+            elif applies not in ("always", "text"):
+                cost += 0.5
+            out.append((prop, value, cost))
+    return out
+
+
 def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]:
+    if f.get("valor_rotulado"):
+        return _value_readings(f, pieces, world)
     obj_kind = f["objeto"]
     readings = []
     for k, p in enumerate(pieces):
@@ -530,6 +586,7 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                 constraints.append({"kind": "moved", "id": node, "parent": parent, "index": index})
             elif f["resultado"] == "field:name":
                 v = _value(pieces, used)
+                cost += _literal_cost(pieces, v)
                 if v is None:
                     cost += COST["valor_ausente"]
                     notes.append("falta o novo nome")
@@ -549,7 +606,7 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                     explained[j] = len(pieces[j].lemmas)
             else:
                 field_word = obj_kind.split(":")[1]
-                words = [w for w, fld in FRAMES["campos"].items() if w == field_word or fld == field_word]
+                words = [fold(w) for w, fld in FRAMES["campos"].items() if w == field_word or fld == field_word]
                 if not p.lemmas or p.lemmas[0] not in words:
                     continue
                 entity, length = None, 1
@@ -585,6 +642,7 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                     continue
             v = _value(pieces, used, entity.id if entity is not None and entity.kind == "propriedade" else None,
                        bare_ok=p.case == ("em",))
+            cost += _literal_cost(pieces, v)
             if v is None:
                 cost += COST["valor_ausente"]
                 notes.append("falta o valor")
@@ -603,8 +661,8 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
             elif obj_kind == "atributo":
                 constraints.append({"kind": "field", "id": owner, "field": "attributes", "value": {entity.id: v[0]}})
             else:
-                constraints.append({"kind": "field", "id": owner, "field": FRAMES["campos"][p.lemmas[0]],
-                                    "value": v[0]})
+                field = next(f for w, f in FRAMES["campos"].items() if fold(w) == p.lemmas[0])
+                constraints.append({"kind": "field", "id": owner, "field": field, "value": v[0]})
         cost += _unexplained(pieces, used, explained)
         if constraints:
             readings.append(Reading(f["id"], constraints, cost, notes, paraphrase(constraints, world),
@@ -636,6 +694,46 @@ def _span_match(pieces: list[Piece], k: int, kinds: set):
     return entry, own, whole
 
 
+def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]:
+    """ "coloque o título à direita", "deixe o parágrafo em negrito": the object is an element, and another phrase
+    names a value; the value tells which property (one reading per candidate property)."""
+    readings = []
+    for k, p in enumerate(pieces):
+        if p.case and not (len(p.case) == 1 and p.case[0] in ARTICLE_FORMS):
+            continue
+        ref, c, notes, ex = _reference(p, world)
+        rp = k  # the piece that names the element
+        if not ref and k + 1 < len(pieces) and pieces[k + 1].case[:1] == ("de",) and p.lemmas and \
+                p.lemmas[0] in {fold(w) for w in FRAMES["campos"]} | {"elemento", "bloco"}:
+            # possession: "o texto do parágrafo Intro", "o conteúdo da seção" refer to that element
+            ref, c, notes, ex = _reference(pieces[k + 1], world)
+            rp = k + 1
+        if not ref:
+            continue
+        node = ref[0]
+        amb = ref if len(ref) > 1 else []
+        # the value is its own phrase ("à direita"), or the rest of the naming phrase when no preposition separated
+        # them ("o titulo a direita", "o conteúdo do título Title centralizado")
+        content = [t for t in pieces[rp].words if not is_literal(t.form) and t.form.lower() not in lexicon.STOP]
+        tail = Piece((), content[ex:]) if len(content) > ex else None
+        options = [(j, q) for j, q in enumerate(pieces) if j not in (k, rp)] + ([(rp, tail)] if tail else [])
+        for j, q in options:
+            for prop, value, vc in _value_candidates(q, world.nodes[node]["type"]):
+                used = {k, rp, j}
+                explained = {k: len(p.lemmas)} if rp != k else {}
+                explained[rp] = ex + (len(q.lemmas) if j == rp else 0)
+                if j != rp:
+                    explained[j] = len(q.lemmas)
+                bp, st, more, extra = _layer(pieces, used, world)
+                used |= more
+                for m in more:
+                    explained[m] = len(pieces[m].lemmas)
+                cost = c + vc + _unexplained(pieces, used, explained)
+                cons = [{"kind": "style", "id": node, "breakpoint": bp, "state": st, "property": prop, "value": value}]
+                readings.append(Reading(f["id"], cons, cost, list(notes), paraphrase(cons, world), ambiguous=amb))
+    return readings
+
+
 def _insert_extras(pieces: list[Piece], k: int, used: set, explained: dict) -> dict:
     """What an insertion also asks of the new node: "com o texto X", "com o nome X", "chamado X"."""
     extras = {}
@@ -653,7 +751,7 @@ def _insert_extras(pieces: list[Piece], k: int, used: set, explained: dict) -> d
         if j in used or j == k:
             continue
         lem = q.lemmas
-        field = FRAMES["campos"].get(lem[0]) if lem else None
+        field = next((f for w, f in FRAMES["campos"].items() if fold(w) == lem[0]), None) if lem else None
         literal = next((literal_value(t.form) for t in q.words if is_literal(t.form)), None)
         if field and q.case[-1:] == ("com",):
             value = literal if literal is not None else " ".join(t.form for t in q.words[1:])

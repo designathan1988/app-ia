@@ -50,10 +50,34 @@ def _con():
     return sqlite3.connect(f"file:{DB}?mode=ro", uri=True, check_same_thread=False)
 
 
+ACCENTS = {"a": "áàâã", "e": "éê", "i": "í", "o": "óôõ", "u": "úü", "c": "ç"}
+
+
+def _accent_variants(word: str, limit: int = 2):
+    """Spellings of an unaccented word with accents restored on up to `limit` letters ("poe" -> "põe")."""
+    spots = [i for i, ch in enumerate(word) if ch in ACCENTS]
+    for n in range(1, limit + 1):
+        for idx in __import__("itertools").combinations(spots, n):
+            pools = [ACCENTS[word[i]] for i in idx]
+            for choice in __import__("itertools").product(*pools):
+                w = list(word)
+                for i, ch in zip(idx, choice):
+                    w[i] = ch
+                yield "".join(w)
+
+
 @lru_cache(maxsize=200_000)
 def analyses(form: str) -> tuple[tuple[str, str], ...]:
-    """(lemma, tags) for a form, e.g. "insira" -> (("inserir", "V+SBJR+1+SG"), ("inserir", "V+IMP+3+SG"), ...)."""
-    rows = _con().execute("SELECT lemma, tags FROM f WHERE form = ?", (form.lower(),)).fetchall()
+    """(lemma, tags) for a form, e.g. "insira" -> (("inserir", "V+SBJR+1+SG"), ("inserir", "V+IMP+3+SG"), ...).
+    A form typed without its accents is found through its accented spellings ("titulo" -> "título")."""
+    w = form.lower()
+    rows = _con().execute("SELECT lemma, tags FROM f WHERE form = ?", (w,)).fetchall()
+    if not rows and w.isascii() and w.isalpha() and len(w) <= 20:
+        variants = list(_accent_variants(w))
+        for i in range(0, len(variants), 400):
+            chunk = variants[i:i + 400]
+            rows += _con().execute(f"SELECT lemma, tags FROM f WHERE form IN ({','.join('?' * len(chunk))})",
+                                   chunk).fetchall()
     return tuple(sorted(set(rows)))
 
 
