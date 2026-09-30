@@ -95,3 +95,55 @@ número exponencial de árvores.
 - implementar a coordenação de infinitivos (ausente no GF românico);
 - tratar siglas e estrangeirismos como nomes do léxico;
 - aplicar as construções do `Extend` de forma restrita e medir de novo.
+
+## M2 — Planejar sobre o builder-6 real
+
+**Pergunta:** a partir do estado inicial de cada cenário do builder-6 (fixture, seleção, idioma, breakpoint, estado) e
+só do **documento esperado**, o planejador chega a esse documento usando os comandos reais do editor, sem ver os passos
+do cenário?
+
+**Método:**
+- **Problemas:** os 1.023 cenários do manifesto do builder com diferença de documento esperada.
+- **Sucesso:** o `matchDocument` do próprio builder aceita o documento final, e o validador do builder aceita todo
+  estado confirmado.
+- **Verificação independente:** cada plano resolvido é refeito do zero, numa nova montagem.
+- **Conjunto alcançável:** quantos cenários o editor sem interface reproduz com os **passos originais**
+  (`experiments/m2_replay.py`). Esse é o teto: 798 de 1.023. Os demais dependem de arquivos, área de transferência,
+  geometria medida em pixels ou importação de HTML.
+- **Modelo de efeitos** (`nucleo/builder/effects.py`): aprendido por experimentação nas fixtures, com argumentos
+  tirados só dos domínios do manifesto. Os objetivos nunca são lidos nessa fase. Levou 6 s e observou 68 comandos com
+  efeito, com 6 generalizações paramétricas (por exemplo, `style.set` escreve exatamente a propriedade do seu
+  argumento `property`).
+- **Planejador** (`nucleo/builder/planner.py`):
+  - diferença estruturada entre o estado e a meta;
+  - relevância **deduzida pelo núcleo lógico** (regras sobre os fatos aprendidos, com prova checável);
+  - argumentos abduzidos do próprio item da diferença e filtrados pelo tipo declarado no manifesto;
+  - pré-condições por meios-fins (selecionar o nó; mudar a camada de breakpoint ou estado);
+  - busca best-first pela distância em folhas.
+
+**Resultado** (1.023 cenários, 183 s):
+
+| Medida | Valor | Meta (§11) |
+|---|---|---|
+| Objetivos alcançáveis resolvidos | **676 / 798 = 84,7%** | ≥ 80% |
+| Todos os objetivos | 800 / 1.023 = 78,2% | — |
+| Planos resolvidos confirmados ao refazer do zero | **800 / 800** | 100% |
+| Mesmo comando principal do cenário | 458 / 800 | não é meta: planos alternativos válidos contam |
+| Nomes de nós trocados por palavras inventadas (758 renomeáveis) | 602 → 599 (−0,4 ponto) | queda ≤ 1 ponto |
+
+O planejador resolve 124 cenários que os passos originais não reproduzem sem interface. Ele encontra outro caminho:
+por exemplo, `selection.select` + `element.moveTo`, onde o cenário usava um arrastar medido em pixels.
+
+**Evolução da heurística (registro honesto):**
+- Na primeira versão, a distância era a contagem do `matchDocument`: 58,9% dos alcançáveis. Essa contagem trata um
+  objeto `styles` ausente como uma divergência só. Por isso, pôr `display:flex` antes de `flex-direction`, ou inserir
+  uma imagem antes de definir o `src`, não contava como progresso, e a busca podava o passo.
+- Trocada pela distância em folhas (cada propriedade, atributo, classe ou texto que falta conta 1), a taxa subiu para
+  84,7%. O `matchDocument` continua sendo o juiz do sucesso.
+
+**Limites conhecidos:**
+- Entre planos equivalentes no documento, o planejador não prefere o de menor efeito colateral. Ele pode escolher
+  `clipboard.cut` onde `element.delete` bastaria, porque os dois têm o mesmo efeito observado no documento.
+- As falhas restantes entre os alcançáveis concentram-se em comandos cujo efeito a exploração não observou
+  (`style.setShadows`, `element.setTag`, `element.setLink`: argumentos com formato próprio) e em metas de vários
+  itens que exigem mais passos do que o orçamento de expansões.
