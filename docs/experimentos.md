@@ -147,3 +147,57 @@ por exemplo, `selection.select` + `element.moveTo`, onde o cenário usava um arr
 - As falhas restantes entre os alcançáveis concentram-se em comandos cujo efeito a exploração não observou
   (`style.setShadows`, `element.setTag`, `element.setLink`: argumentos com formato próprio) e em metas de vários
   itens que exigem mais passos do que o orçamento de expansões.
+
+## M3 — O mundo do código: resolução de nomes por regras, julgada pelos compiladores
+
+**Pergunta:** o núcleo lógico, recebendo só fatos **sintáticos** (escopos, declarações e usos, lidos da árvore
+sintática, sem verificador de tipos), deduz a que declaração cada nome se refere com a exatidão do próprio compilador?
+
+**Método:**
+- **Regras** (`nucleo/code/resolve.py`, 12 linhas de Datalog) iguais para TypeScript e Python:
+  - busca pelo escopo e pelos escopos envolventes;
+  - parada no primeiro escopo que declara o nome num espaço compatível: negação sobre mundo fechado;
+  - `#min` entre declarações mescladas;
+  - "externo" quando nenhum escopo declara o nome.
+
+  Só o extrator conhece a linguagem:
+  - TypeScript (`bridge/code/ts_facts.mjs`): `var` e declarações de função, blocos, espaços de valor e de tipo;
+  - Python (`nucleo/code/python_facts.py`): classe invisível para funções aninhadas, `global`/`nonlocal`, PEP 695,
+    mangling de `__nome`.
+- **Entre arquivos** (`nucleo/code/modules.py`): a resolução de caminho de módulo é fato do compilador, com
+  proveniência. As cadeias de `import`/`export`/`export *`/reexportação são deduzidas por regras.
+- **Oráculos:**
+  - resolução de nomes: `checker.getSymbolAtLocation` do TypeScript e `symtable` do CPython;
+  - resolução entre arquivos: `getAliasedSymbol` do TypeScript;
+  - consultas sobre o projeto: o `findReferences` do serviço de linguagem do TypeScript.
+
+**Resultado:**
+
+| Corpus | Usos | Precisão | Cobertura | VERDADEIRO errado |
+|---|---|---|---|---|
+| builder-6 (TS, 320 arquivos) | 72.149 | 100% | 100% | 0 |
+| builder-5 (TS, 284) | 68.099 | 100% | 100% | 0 |
+| Road (TS, 182) — **validação** | 79.833 | 100% (antes do ajuste: 100% / 99,993%) | 100% | 0 |
+| zerto-studio (TS 7, 14) — **validação** | 7.468 | 100% | 100% | 0 |
+| stdlib do Python 3.12 (163) — **validação** | ~103 mil | 100% (antes dos ajustes: 99,992%) | 100% | 0 |
+| site-packages (pytest, hypothesis, clingo, pip…; 1.037) — **validação limpa** | 229.116 | **100%** | **100%** | **0** |
+
+| Consulta | Resultado |
+|---|---|
+| Importações até a declaração de origem | builder-6 4.188/4.188; builder-5 3.699/3.699; Road 2.094/2.094; zerto 153/153 |
+| "Todas as referências" contra `findReferences` | builder-6: 864/864 em 185 declarações; Road: 5.869/5.869 em 1.011 declarações |
+| Incremental por arquivo | 7 alterações reais (builder-5 → builder-6): **igual à reconstrução completa** |
+
+A meta do §11 era P ≥ 99,5% / C ≥ 97% e "VERDADEIRO errado" ≤ 0,1%.
+
+**Honestidade sobre a validação:**
+- As regras foram corrigidas olhando os erros do builder-6, do Road e da stdlib. Por isso o número *antes* de cada
+  ajuste está registrado.
+- O conjunto site-packages só foi usado depois de todos os ajustes: é o resultado de validação limpo.
+
+**Limites:**
+- **Manutenção incremental:** o cone é calculado por predicado. A mudança de um arquivo recalcula a relação
+  `alcanca` do projeto inteiro: ~5 s por atualização, contra 14 s da reconstrução. Para milissegundos é preciso
+  manutenção por tupla (DRed / contagem), prevista para o porte em Rust (R1).
+- **Membros de objeto** (`a.b`) dependem de tipos. Eles não são resolvidos por essas regras. O plano é trazê-los como
+  fatos do compilador, com proveniência.
