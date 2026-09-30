@@ -148,7 +148,11 @@ for await (const line of rl) {
           }
           res.problems = h.validate(now.document, now.selection).length;
           res.changed = now.document !== before.document;
-          if (constraints) res.unsatisfied = constraints.reduce((n, it) => n + h.constraintDistance(it, now.document, constraintStart), 0);
+          if (constraints) {
+            // what is still missing, plus every change nobody asked for (inertia)
+            res.unsatisfied = constraints.reduce((n, it) => n + h.constraintDistance(it, now.document, constraintStart), 0)
+              + h.collateral(constraints, constraintStart, now.document).length;
+          }
           if (r.confirmed) res.confirmed = true;
           if (req.fields && res.changed !== undefined) res.fields = h.itemFields(h.diffItems(before.document, now.document));
           if (req.keep && r.status === 'done') res.state = save(req.state, c);
@@ -170,8 +174,9 @@ for await (const line of rl) {
       case 'unsatisfied': {
         const st = restore(req.state).getState();
         const items = h.pendingItems(constraints, st.document, constraintStart);
-        const count = constraints.reduce((n, it) => n + h.constraintDistance(it, st.document, constraintStart), 0);
-        out({ items, selection: st.selection, count });
+        const side = h.collateral(constraints, constraintStart, st.document);
+        const count = constraints.reduce((n, it) => n + h.constraintDistance(it, st.document, constraintStart), 0) + side.length;
+        out({ items, selection: st.selection, count, collateral: side });
         break;
       }
       case 'goalDiff': {

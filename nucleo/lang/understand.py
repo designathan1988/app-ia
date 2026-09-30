@@ -720,18 +720,35 @@ def paraphrase(constraints: list, world: World) -> str:
     return text[:1].upper() + text[1:] + "." if parts else ""
 
 
+def _why_nothing(tokens: list[Token], world: World) -> str:
+    """When no reading was built at all, say which part was missing rather than a generic failure."""
+    pred = _predicate(tokens)
+    if pred is None:
+        return "não achei o verbo do pedido"
+    pieces = _pieces(tokens, pred)
+    has_value = any(is_literal(t.form) for p in pieces for t in p.words) or any(
+        p.case[-1:] and p.case[-1] in FRAMES["valor_casos"] and p.words for p in pieces)
+    names_prop = any(lexicon.match(p.lemmas, {"propriedade", "atributo"}) for p in pieces)
+    if names_prop and not has_value:
+        return "falta o valor (por exemplo: «... como 24px»)"
+    if not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
+        return f"não conheço o verbo «{pred.lemma}»"
+    return f"entendi o verbo «{pred.lemma}», mas não o que ele deve alterar"
+
+
 def understand(text: str, world: World) -> Understanding:
     tokens = analyse(text)
     readings = _readings(tokens, world)
     if not readings or readings[0].cost > LIMIT:
-        why = "; ".join(readings[0].assumptions) if readings else "não achei o verbo do pedido"
+        why = "; ".join(readings[0].assumptions) if readings else _why_nothing(tokens, world)
         return Understanding(text, tokens, readings, "nao_entendi", f"Não entendi: {why}.")
     best = readings[0]
     if best.unknown_verb:
-        # the action itself was not understood: never executed, only offered
+        # the action itself was not understood: never executed, and no guess offered as if it were an answer
         verb = best.assumptions[0].split("'")[1]
         return Understanding(text, tokens, readings, "perguntar",
-                             f"Não conheço o verbo «{verb}». Você quer dizer «{best.paraphrase}»?")
+                             f"Não conheço o verbo «{verb}». O que ele deve fazer? "
+                             f"(por exemplo: «{verb} significa definir o alinhamento do texto como center»)")
     if best.ambiguous:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in best.ambiguous[:6])
         return Understanding(text, tokens, readings, "perguntar", f"Qual deles: {names}?")

@@ -23,6 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from nucleo.session import low_priority  # noqa: E402
 from nucleo.builder.client import Builder, walk  # noqa: E402
 from nucleo.builder.effects import CACHE, learn, load_model  # noqa: E402
 from nucleo.builder.knowledge import load_domains  # noqa: E402
@@ -144,6 +145,7 @@ def main(per=2, rename=False, limit=None, seed_offset=0):
 
 
 if __name__ == "__main__":
+    low_priority()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     lim = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--limit=")), None)
     seed = next((int(a.split("=")[1]) for a in sys.argv if a.startswith("--seed=")), 0)

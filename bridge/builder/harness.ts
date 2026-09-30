@@ -295,3 +295,65 @@ export function pendingItems(items: any[], doc: any, start: any): any[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Inertia (the frame axiom): what a request does not mention must stay as it was. Every change between the start
+// document and the current one that no constraint accounts for is collateral, and counts against the plan.
+// ---------------------------------------------------------------------------------------------------------------
+function ancestors(idx: Map<string, { parent: string | null }>, id: string): string[] {
+  const out: string[] = [];
+  for (let p = idx.get(id)?.parent ?? null; p; p = idx.get(p)?.parent ?? null) out.push(p);
+  return out;
+}
+
+export function collateral(constraints: any[], start: any, doc: any): any[] {
+  const before = indexNodes(start);
+  const now = indexNodes(doc);
+  const removedTargets = new Set(constraints.filter((c) => c.kind === 'removed').map((c) => c.id));
+  const movedTargets = new Set(constraints.filter((c) => c.kind === 'moved' || c.kind === 'reordered').map((c) => c.id));
+  const styleKeys = new Set(constraints.filter((c) => c.kind === 'style').map((c) => `${c.id}|${c.breakpoint}|${c.state}|${c.property}`));
+  const fieldKeys = new Set(constraints.filter((c) => c.kind === 'field').map((c) => `${c.id}|${c.field}`));
+  const addedMatches = constraints.filter((c) => c.kind === 'added').map((c) => addedMatch(c, doc, start)?.id).filter((x) => x);
+  const newIds = new Set<string>();
+  for (const id of addedMatches as string[]) {
+    newIds.add(id);
+    for (const [nid] of now) if (!before.has(nid) && ancestors(now, nid).includes(id)) newIds.add(nid);
+  }
+  // parents whose children may legitimately shift: where something was added, removed or moved
+  const touchedParents = new Set<string>();
+  for (const id of newIds) touchedParents.add(now.get(id)?.parent ?? '');
+  for (const id of removedTargets) touchedParents.add(before.get(id)?.parent ?? '');
+  for (const id of movedTargets) {
+    touchedParents.add(before.get(id)?.parent ?? '');
+    touchedParents.add(now.get(id)?.parent ?? '');
+  }
+  const out: any[] = [];
+  for (const it of diffItems(start, doc)) {
+    const id = it.id as string | null;
+    switch (it.kind) {
+      case 'removed':
+        if (removedTargets.has(id) || ancestors(before, id as string).some((a) => removedTargets.has(a))) continue;
+        break;
+      case 'added':
+        if (id && newIds.has(id)) continue;
+        break;
+      case 'moved':
+        if (movedTargets.has(id)) continue;
+        break;
+      case 'reordered':
+        if (movedTargets.has(id) || touchedParents.has(it.parent as string)) continue;
+        break;
+      case 'style':
+        if (styleKeys.has(`${id}|${it.breakpoint}|${it.state}|${it.property}`)) continue;
+        if (id && newIds.has(id)) continue;
+        break;
+      case 'field':
+        if (fieldKeys.has(`${id}|${it.field}`) || (id && newIds.has(id))) continue;
+        break;
+      default:
+        break;
+    }
+    out.push(it);
+  }
+  return out;
+}

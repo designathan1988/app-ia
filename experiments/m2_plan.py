@@ -21,6 +21,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from nucleo.session import low_priority  # noqa: E402
 from nucleo.builder.client import Builder  # noqa: E402
 from nucleo.builder.effects import CACHE, learn, load_model  # noqa: E402
 from nucleo.builder.knowledge import load_domains  # noqa: E402
@@ -115,5 +116,6 @@ def main(limit=None, fresh=False, rename=False):
 
 
 if __name__ == "__main__":
+    low_priority()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     main(int(args[0]) if args else None, "--effects-fresh" in sys.argv, "--rename" in sys.argv)
