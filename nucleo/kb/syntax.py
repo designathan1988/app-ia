@@ -161,13 +161,60 @@ class Cmp:
         return f"{term_str(self.left)} {self.op} {term_str(self.right)}"
 
 
-Literal = Union[Pos, Naf, NaoConsta, Cmp]
+AGG_FUNCS = ("count", "sum", "min", "max")
 
 
-def literal_vars(lit: Literal) -> set[Var]:
+@dataclass(frozen=True)
+class Agg:
+    """``Result = #func { t1, ..., tk : body }``.
+
+    Aggregates over the set of *distinct* tuples ``(t1..tk)`` satisfying ``body``
+    (clingo semantics). ``count`` counts the tuples; ``sum`` adds the first
+    component of each tuple, which must be an integer; ``min`` / ``max`` take the
+    first component. ``count`` and ``sum`` of the empty set are 0; ``min`` / ``max``
+    of the empty set are undefined, so the literal fails. The body may only use
+    predicates of strictly lower strata. An aggregate over OPEN-world knowledge is
+    only a bound, so conclusions that use one are PRESUMIDO.
+    """
+
+    result: "Term"
+    func: str
+    terms: tuple
+    body: tuple  # Pos / Naf / NaoConsta / Cmp literals
+
+    def inner_vars(self) -> set:
+        out = {t for t in self.terms if isinstance(t, Var)}
+        for lit in self.body:
+            out |= literal_vars(lit)
+        return out
+
+    def __str__(self) -> str:
+        terms = ", ".join(term_str(t) for t in self.terms)
+        body = ", ".join(str(b) for b in self.body)
+        return f"{term_str(self.result)} = #{self.func}{{{terms} : {body}}}"
+
+
+Literal = Union[Pos, Naf, NaoConsta, Cmp, Agg]
+
+
+def literal_vars(lit) -> set:
     if isinstance(lit, Cmp):
         return lit.vars()
+    if isinstance(lit, Agg):
+        return lit.inner_vars() | ({lit.result} if isinstance(lit.result, Var) else set())
     return lit.atom.vars()
+
+
+def body_atoms(lit) -> list:
+    """Atoms mentioned by a body literal (including inside an aggregate)."""
+    if isinstance(lit, Cmp):
+        return []
+    if isinstance(lit, Agg):
+        out: list = []
+        for inner in lit.body:
+            out += body_atoms(inner)
+        return out
+    return [lit.atom]
 
 
 @dataclass(frozen=True)
@@ -175,9 +222,13 @@ class Rule:
     id: int
     head: Atom
     body: tuple
+    label: str | None = None
+    defeasible: bool = False  # "normally": `head <~ body.`, can be defeated by a conflicting rule
 
     def __str__(self) -> str:
-        return f"{self.head} :- {', '.join(str(b) for b in self.body)}."
+        arrow = "<~" if self.defeasible else ":-"
+        prefix = f"@{self.label} " if self.label else ""
+        return f"{prefix}{self.head} {arrow} {', '.join(str(b) for b in self.body)}."
 
 
 @dataclass
@@ -187,6 +238,8 @@ class Program:
     # world per base predicate (name, arity): "fechado" | "aberto"
     worlds: dict[tuple[str, int], str] = field(default_factory=dict)
     default_world: str = "aberto"
+    # (higher, lower): the rule labelled `higher` beats the rule labelled `lower` in a defeasible conflict
+    priorities: set = field(default_factory=set)
 
     def world(self, pred: PredKey) -> str:
         return self.worlds.get(pred.base, self.default_world)
@@ -199,8 +252,8 @@ class Program:
         for r in self.rules:
             preds.add(r.head.pred)
             for lit in r.body:
-                if not isinstance(lit, Cmp):
-                    preds.add(lit.atom.pred)
+                for atom in body_atoms(lit):
+                    preds.add(atom.pred)
         for name, arity in self.worlds:
             preds.add(PredKey(name, arity))
         return preds
@@ -215,19 +268,28 @@ class Program:
 
         for f in self.facts:
             add(f.args)
+        def add_lit(lit) -> None:
+            if isinstance(lit, Cmp):
+                add((lit.left, lit.right))
+            elif isinstance(lit, Agg):
+                add((lit.result,))
+                add(lit.terms)
+                for inner in lit.body:
+                    add_lit(inner)
+            else:
+                add(lit.atom.args)
+
         for r in self.rules:
             add(r.head.args)
             for lit in r.body:
-                if isinstance(lit, Cmp):
-                    add((lit.left, lit.right))
-                else:
-                    add(lit.atom.args)
+                add_lit(lit)
         return consts
 
     def __str__(self) -> str:
         lines = [f"pred {n}/{a} {w}." for (n, a), w in sorted(self.worlds.items())]
         lines += [f"{f}." for f in self.facts]
         lines += [str(r) for r in self.rules]
+        lines += [f"@{hi} > @{lo}." for hi, lo in sorted(self.priorities)]
         return "\n".join(lines)
 
 
@@ -257,8 +319,8 @@ class ParseError(ValueError):
     pass
 
 
-_PUNCT2 = (":-", "!=", "<=", ">=")
-_PUNCT1 = "(),.-=<>/"
+_PUNCT2 = (":-", "!=", "<=", ">=", "<~")
+_PUNCT1 = "(),.-=<>/#{}:@"
 _KEYWORDS = {"pred", "not", "nao_consta", "fechado", "aberto"}
 
 
@@ -368,17 +430,32 @@ class _Parser:
         if self.at("NAME", "pred") and self.peek(1).kind == "NAME" and self.peek(2).text == "/":
             self.declaration()
             return
-        head = self.atom()
-        if self.at("P", ":-"):
+        label = None
+        if self.at("P", "@"):
             self.take()
+            label = self.expect("NAME").text
+            if self.at("P", ">"):  # priority: @a > @b.
+                self.take()
+                self.expect("P", "@")
+                lower = self.expect("NAME").text
+                self.expect("P", ".")
+                self.program.priorities.add((label, lower))
+                return
+        head = self.atom()
+        if self.at("P", ":-") or self.at("P", "<~"):
+            defeasible = self.take().text == "<~"
             body = [self.literal()]
             while self.at("P", ","):
                 self.take()
                 body.append(self.literal())
             self.expect("P", ".")
-            rule = Rule(len(self.program.rules), head, tuple(body))
+            if label is not None and any(r.label == label for r in self.program.rules):
+                raise ParseError(f"rótulo de regra repetido: @{label}")
+            rule = Rule(len(self.program.rules), head, tuple(body), label, defeasible)
             self.program.rules.append(rule)
             return
+        if label is not None:
+            raise ParseError("rótulo @ só pode anteceder uma regra")
         self.expect("P", ".")
         if not head.is_ground():
             raise ParseError(f"fact {head} is not ground")
@@ -441,6 +518,28 @@ class _Parser:
             atom = self.atom()
             self.expect("P", ")")
             return NaoConsta(atom)
+        # aggregate: Result = #func { terms : body }
+        if self.peek(1).kind == "P" and self.peek(1).text == "=" and self.peek(2).text == "#":
+            result = self.term()
+            self.expect("P", "=")
+            self.expect("P", "#")
+            func = self.expect("NAME").text
+            if func not in AGG_FUNCS:
+                raise ParseError(f"agregado desconhecido #{func}")
+            self.expect("P", "{")
+            terms = [self.term()]
+            while self.at("P", ","):
+                self.take()
+                terms.append(self.term())
+            self.expect("P", ":")
+            inner = [self.literal()]
+            while self.at("P", ","):
+                self.take()
+                inner.append(self.literal())
+            self.expect("P", "}")
+            if any(isinstance(l, Agg) for l in inner):
+                raise ParseError("agregado aninhado não é suportado")
+            return Agg(result, func, tuple(terms), tuple(inner))
         # comparison: term OP term (a term that is not followed by '(' when it is a NAME)
         tok = self.peek()
         nxt = self.peek(1)

@@ -38,8 +38,13 @@ def test_document_has_enough_examples():
 def test_example(src, expectations):
     program = parse_program(src)
     model = evaluate(program)
-    assert set(model.entries) == naive.perfect_model(program) == clingo_bridge.answer_set(program)
-    S = check_model(program, model_certificate(model))
+    ref, ref_indet = naive.perfect_model(program, with_indeterminate=True)
+    assert set(model.entries) == ref and model.indeterminate == ref_indet
+    try:
+        assert set(model.entries) == clingo_bridge.answer_set(program)
+    except clingo_bridge.Unsupported:
+        pass  # defeasible rules: only the naive oracle and the checker apply
+    S = check_model(program, model_certificate(model), model.indeterminate)
     assert expectations, "exemplo sem expectativa"
     for atom_src, value, qual in expectations:
         atom = parse_atom(atom_src)
@@ -48,4 +53,4 @@ def test_example(src, expectations):
         neg = Atom(atom.pred.negated(), atom.args)
         check_status(program, atom, st.value, st.qualifier, S,
                      proof_tree(model, atom) if atom in model else None,
-                     proof_tree(model, neg) if neg in model else None)
+                     proof_tree(model, neg) if neg in model else None, model.indeterminate)

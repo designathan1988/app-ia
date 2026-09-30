@@ -41,7 +41,8 @@ class _Pred:
 
 
 def random_program(seed: int, *, n_preds: int | None = None, n_consts: int | None = None,
-                   n_rules: int | None = None, n_facts: int | None = None) -> str:
+                   n_rules: int | None = None, n_facts: int | None = None,
+                   aggregates: bool = False, defeasible: bool = False) -> str:
     rng = random.Random(seed)
     used: set[str] = set()
 
@@ -86,10 +87,18 @@ def random_program(seed: int, *, n_preds: int | None = None, n_consts: int | Non
             p = rng.choice(preds)
             lines.append(f"-{p.name}{ground_args(p.arity)}.")
 
+    # predicates decided only by defeasible rules (plus facts): open, above level 0, no strict rules
+    dpreds = []
+    if defeasible:
+        cands = [p for p in preds if not p.closed and p.level >= 1]
+        dpreds = rng.sample(cands, min(len(cands), rng.randint(1, 2)))
+
     var_names = ["X", "Y", "Z", "W", "V"]
     n_rules = n_rules or rng.randint(3, 9)
     for _ in range(n_rules):
         head = rng.choice(preds)
+        if head in dpreds:
+            continue
         pool = [q for q in preds if q.level <= head.level]
         if head.closed:
             pool = [q for q in pool if q.closed]
@@ -127,6 +136,26 @@ def random_program(seed: int, *, n_preds: int | None = None, n_consts: int | Non
                     body.append(f"not {atom}")
                 elif not head.closed:
                     body.append(f"nao_consta({atom})")
+        if aggregates and rng.random() < 0.35:
+            lower_agg = [q for q in preds if q.level < head.level and q.arity >= 1 and (q.closed or not head.closed)]
+            if lower_agg:
+                q = rng.choice(lower_agg)
+                func = rng.choice(["count", "count", "sum", "min", "max"])
+                inner_args = []
+                for i in range(q.arity):
+                    if i == 0 and bound and rng.random() < 0.6:
+                        inner_args.append(rng.choice(bound))  # a global variable ties the group
+                    else:
+                        inner_args.append(f"L{i}")
+                locals_ = [a for a in inner_args if a.startswith("L")] or [inner_args[0]]
+                terms = ", ".join(locals_ if func == "count" else [locals_[0]] + locals_[1:])
+                inner = f"{q.name}({', '.join(inner_args)})"
+                if not head.closed and rng.random() < 0.2:
+                    extra = [c for c in preds if c.level < head.level and c.arity == 1]
+                    if extra:
+                        inner += f", nao_consta({rng.choice(extra).name}({locals_[0]}))"
+                body.append(f"N = #{func}{{{terms} : {inner}}}")
+                bound.append("N")
         if bound and rng.random() < 0.3:
             a = rng.choice(bound)
             b = rng.choice(bound + consts)
@@ -136,6 +165,40 @@ def random_program(seed: int, *, n_preds: int | None = None, n_consts: int | Non
         hsign = "-" if rng.random() < 0.15 else ""
         head_atom = f"{hsign}{head.name}" + (f"({', '.join(head_args)})" if head_args else "")
         lines.append(f"{head_atom} :- {', '.join(body)}.")
+
+    labels: list[str] = []
+    for d in dpreds:
+        lower = [q for q in preds if q.level < d.level and q not in dpreds]
+        if not lower:
+            continue
+        structured = [(a, b) for a in lower for b in lower
+                      if a is not b and a.arity == b.arity >= 1 and not a.closed and not b.closed and b.level >= a.level]
+        if structured and rng.random() < 0.5:
+            a, b = rng.choice(structured)  # a implies b by a strict rule: rules on a are more specific
+            xs = [f"X{i}" for i in range(a.arity)]
+            lines.append(f"{b.name}({', '.join(xs)}) :- {a.name}({', '.join(xs)}).")
+            hargs = [rng.choice(xs) for _ in range(d.arity)]
+            head = d.name + (f"({', '.join(hargs)})" if hargs else "")
+            sign_general = rng.choice(["", "-"])
+            sign_specific = "-" if sign_general == "" else ""
+            for sign, pred in ((sign_general, b), (sign_specific, a)):
+                label = f"r{len(labels)}"
+                labels.append(label)
+                lines.append(f"@{label} {sign}{head} <~ {pred.name}({', '.join(xs)}).")
+            continue
+        for _ in range(rng.randint(1, 3)):
+            q = rng.choice(lower)
+            xs = [rng.choice(["X", "Y"]) if rng.random() < 0.85 else rng.choice(consts) for _ in range(q.arity)]
+            vars_ = [x for x in xs if x in ("X", "Y")]
+            hargs = [rng.choice(vars_) if vars_ and rng.random() < 0.85 else rng.choice(consts) for _ in range(d.arity)]
+            head = f"{rng.choice(['', '-'])}{d.name}" + (f"({', '.join(hargs)})" if hargs else "")
+            label = f"r{len(labels)}"
+            labels.append(label)
+            body = q.name + (f"({', '.join(xs)})" if xs else "")
+            lines.append(f"@{label} {head} <~ {body}.")
+    if len(labels) >= 2 and rng.random() < 0.4:
+        hi, lo = rng.sample(labels, 2)
+        lines.append(f"@{hi} > @{lo}.")
 
     rng.shuffle(lines)
     return "\n".join(lines) + "\n"

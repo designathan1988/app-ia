@@ -394,11 +394,109 @@ frio(X) :- temp(X, T), T < 0.
 %? frio(rio) => FALSO(mundo_fechado)
 ```
 
+### Agregados
+
+```nl
+% 41. contagem sobre mundo fechado: exata
+pred item/2 fechado. pred secao/1 fechado. pred total/2 fechado.
+secao(topo). secao(rodape).
+item(topo, a). item(topo, b). item(rodape, c).
+total(S, N) :- secao(S), N = #count{I : item(S, I)}.
+%? total(topo, 2) => VERDADEIRO(inferido)
+%? total(rodape, 1) => VERDADEIRO(inferido)
+%? total(topo, 3) => FALSO(mundo_fechado)
+```
+
+```nl
+% 42. contagem sobre mundo aberto: é só um limite, então PRESUMIDO
+pred secao/1 fechado.
+secao(topo).
+link(topo, a). link(topo, b).
+nlinks(S, N) :- secao(S), N = #count{L : link(S, L)}.
+%? nlinks(topo, 2) => VERDADEIRO(presumido)
+```
+
+```nl
+% 43. soma, mínimo e máximo
+pred preco/2 fechado. pred soma/1 fechado. pred menor/1 fechado. pred maior/1 fechado. pred loja/1 fechado.
+loja(x).
+preco(a, 10). preco(b, 25). preco(c, 7).
+soma(T) :- loja(x), T = #sum{P, I : preco(I, P)}.
+menor(M) :- loja(x), M = #min{P : preco(I, P)}.
+maior(M) :- loja(x), M = #max{P : preco(I, P)}.
+%? soma(42) => VERDADEIRO(inferido)
+%? menor(7) => VERDADEIRO(inferido)
+%? maior(25) => VERDADEIRO(inferido)
+%? menor(10) => FALSO(mundo_fechado)
+```
+
+```nl
+% 44. mínimo de conjunto vazio é indefinido: a regra não dispara
+pred preco/2 fechado. pred menor/1 fechado. pred loja/1 fechado.
+loja(x). preco(a, 1).
+menor(M) :- loja(x), M = #min{P : preco(zzz, P)}.
+%? menor(1) => FALSO(mundo_fechado)
+```
+
+```nl
+% 45. contagem vazia é zero
+pred item/2 fechado. pred secao/1 fechado. pred vazia/1 fechado.
+secao(meio). item(topo, a).
+vazia(S) :- secao(S), 0 = #count{I : item(S, I)}.
+%? vazia(meio) => VERDADEIRO(inferido)
+```
+
+### Regras derrotáveis ("normalmente")
+
+```nl
+% 46. Tweety por especificidade: pinguim é mais específico que ave
+ave(X) :- pinguim(X).
+@voam voa(X) <~ ave(X).
+@pinguins -voa(X) <~ pinguim(X).
+pinguim(tweety). ave(piu).
+%? voa(tweety) => FALSO(inferido)
+%? voa(piu) => VERDADEIRO(inferido)
+```
+
+```nl
+% 47. diamante de Nixon: nenhuma regra é mais específica nem tem prioridade
+@quacres pacifista(X) <~ quacre(X).
+@republicanos -pacifista(X) <~ republicano(X).
+quacre(nixon). republicano(nixon). quacre(ana).
+%? pacifista(nixon) => INDETERMINADO
+%? pacifista(ana) => VERDADEIRO(inferido)
+```
+
+```nl
+% 48. prioridade explícita desempata o diamante
+@quacres pacifista(X) <~ quacre(X).
+@republicanos -pacifista(X) <~ republicano(X).
+@republicanos > @quacres.
+quacre(nixon). republicano(nixon).
+%? pacifista(nixon) => FALSO(inferido)
+```
+
+```nl
+% 49. fato afirmado sempre vence a regra derrotável
+ave(X) :- pinguim(X).
+@voam voa(X) <~ ave(X).
+ave(piu). -voa(piu).
+%? voa(piu) => FALSO(afirmado)
+```
+
+```nl
+% 50. conclusão derrotável alimenta regra estrita
+ave(X) :- pinguim(X).
+@voam voa(X) <~ ave(X).
+@pinguins -voa(X) <~ pinguim(X).
+viaja_de_aviao(X) :- -voa(X).
+pinguim(tweety).
+%? viaja_de_aviao(tweety) => VERDADEIRO(inferido)
+```
+
 ## 6. Limites desta versão (M1, primeira fatia)
 
 **Ainda não implementado:**
-- regras derrotáveis e o status INDETERMINADO;
-- agregados;
 - contextos e versões;
 - manutenção incremental;
 - conjunto mínimo de conflito;

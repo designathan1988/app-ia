@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import clingo
 
-from nucleo.kb.syntax import Atom, Cmp, Naf, NaoConsta, Pos, PredKey, Program, Sym, Text, Var
+from nucleo.kb.syntax import Agg, Atom, Cmp, Naf, NaoConsta, Pos, PredKey, Program, Sym, Text, Var
 
 _P = "p__"
 _N = "neg__"
@@ -42,17 +42,37 @@ def _atom(a: Atom) -> str:
     return f"{name}({','.join(_term(t) for t in a.args)})"
 
 
+class Unsupported(Exception):
+    """The program uses a construct with no direct ASP translation (defeasible rules)."""
+
+
+def _lit(lit) -> list[str]:
+    if isinstance(lit, Pos):
+        return [_atom(lit.atom)]
+    if isinstance(lit, (Naf, NaoConsta)):
+        return ["not " + _atom(lit.atom)]
+    if isinstance(lit, Cmp):
+        return [f"{_term(lit.left)} {lit.op} {_term(lit.right)}"]
+    if isinstance(lit, Agg):
+        inner = ", ".join(x for l in lit.body for x in _lit(l))
+        terms = ", ".join(_term(t) for t in lit.terms)
+        out = [f"{_term(lit.result)} = #{lit.func}{{{terms} : {inner}}}"]
+        # our semantics: #min/#max of the empty set is undefined (the literal fails);
+        # clingo yields #sup/#inf, so those values are excluded explicitly
+        if lit.func == "min":
+            out.append(f"{_term(lit.result)} < #sup")
+        if lit.func == "max":
+            out.append(f"{_term(lit.result)} > #inf")
+        return out
+    raise TypeError(lit)
+
+
 def to_asp(program: Program) -> str:
+    if any(r.defeasible for r in program.rules):
+        raise Unsupported("regras derrotáveis")
     lines = [f"{_atom(f)}." for f in program.facts]
     for r in program.rules:
-        body = []
-        for lit in r.body:
-            if isinstance(lit, Pos):
-                body.append(_atom(lit.atom))
-            elif isinstance(lit, (Naf, NaoConsta)):
-                body.append("not " + _atom(lit.atom))
-            elif isinstance(lit, Cmp):
-                body.append(f"{_term(lit.left)} {lit.op} {_term(lit.right)}")
+        body = [x for lit in r.body for x in _lit(lit)]
         lines.append(f"{_atom(r.head)} :- {', '.join(body)}.")
     return "\n".join(lines)
 

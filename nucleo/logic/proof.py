@@ -34,6 +34,10 @@ def proof_tree(model: Model, atom: Atom) -> dict:
         "premissas": [proof_tree(model, p) for p in j.premises],
         "ausencias": [{"tipo": kind, "atomo": a} for kind, a in j.absences],
         "comparacoes": [list(c) for c in j.comparisons],
+        "agregados": [
+            {"indice": i, "func": f, "elementos": [list(e) for e in els], "valor": v} for i, f, els, v in j.aggregates
+        ],
+        "derrotas": [{"regra": r, "subst": dict(sub), "motivo": why} for r, sub, why in j.defeats],
     }
 
 
@@ -59,4 +63,8 @@ def render_proof(tree: dict, indent: int = 0) -> str:
         lines.append(f"{pad}  {a['atomo']}  [{label}]")
     for op, left, right in tree["comparacoes"]:
         lines.append(f"{pad}  {left} {op} {right}  [comparação]")
+    for a in tree.get("agregados", []):
+        lines.append(f"{pad}  #{a['func']} = {a['valor']} sobre {len(a['elementos'])} elemento(s)  [agregado]")
+    for d in tree.get("derrotas", []):
+        lines.append(f"{pad}  vence a regra {d['regra']} por {d['motivo']}  [conflito derrotável]")
     return "\n".join(lines)

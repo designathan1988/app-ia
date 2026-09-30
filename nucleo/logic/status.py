@@ -10,8 +10,8 @@ For a positive ground atom ``p(t)`` with strong-negation counterpart ``-p(t)``:
 | yes | yes | CONTRADITORIO | both proofs are returned |
 | no | no, p open-world | DESCONHECIDO | — |
 
-INDETERMINADO (defeasible conflict without a winner) and HIPOTETICO (learned
-rule) arrive with the defeasible and learning layers.
+INDETERMINADO: defeasible rules for and against, and no winner by priority or specificity.
+HIPOTETICO (a conclusion of a learned rule) arrives with the learning layer.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ VERDADEIRO = "VERDADEIRO"
 FALSO = "FALSO"
 CONTRADITORIO = "CONTRADITORIO"
 DESCONHECIDO = "DESCONHECIDO"
+INDETERMINADO = "INDETERMINADO"
 
 AFIRMADO = "afirmado"
 INFERIDO = "inferido"
@@ -61,6 +62,8 @@ def status_of(model: Model, atom: Atom) -> Status:
         return Status(VERDADEIRO, _qualifier(model, atom))
     if neg_in:
         return Status(FALSO, _qualifier(model, neg))
+    if atom in model.indeterminate:
+        return Status(INDETERMINADO)
     if model.program.is_closed(atom.pred):
         return Status(FALSO, MUNDO_FECHADO)
     return Status(DESCONHECIDO)
@@ -77,6 +80,8 @@ def explain(model: Model, atom: Atom) -> dict:
         out["prova_negacao"] = proof_tree(model, neg)
     if st.value == FALSO and st.qualifier == MUNDO_FECHADO:
         out["motivo"] = f"{atom.pred.name}/{atom.pred.arity} é de mundo fechado e {atom} não é derivável"
+    if st.value == INDETERMINADO:
+        out["motivo"] = f"regras derrotáveis a favor e contra {atom}, sem vencedor por prioridade ou especificidade"
     if st.value == DESCONHECIDO:
         out["motivo"] = f"nem {atom} nem {neg} são deriváveis, e {atom.pred.name}/{atom.pred.arity} é de mundo aberto"
     return out

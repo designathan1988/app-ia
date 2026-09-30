@@ -20,53 +20,75 @@ N = int(os.environ.get("NUCLEO_DIFF_N", "300"))
 SEED0 = int(os.environ.get("NUCLEO_DIFF_SEED", "0"))
 
 
-def _run(seed: int) -> dict:
-    src = random_program(seed)
+def _run(seed: int, **features) -> dict:
+    src = random_program(seed, **features)
     program = parse_program(src)
-    analysis = analyze(program)  # generator guarantees admissibility
+    analysis = analyze(program)  # the generator guarantees admissibility
     model = evaluate(program, analysis)
     engine_set = set(model.entries)
 
-    ref = naive.perfect_model(program)
+    ref, ref_indet = naive.perfect_model(program, with_indeterminate=True)
     assert engine_set == ref, f"seed {seed}: motor != oráculo ingênuo\n{src}"
-    asp = clingo_bridge.answer_set(program)
-    assert engine_set == asp, f"seed {seed}: motor != clingo\n{src}"
+    assert model.indeterminate == ref_indet, f"seed {seed}: INDETERMINADOS diferem\n{src}"
+    clingo_used = True
+    try:
+        asp = clingo_bridge.answer_set(program)
+        assert engine_set == asp, f"seed {seed}: motor != clingo\n{src}"
+    except clingo_bridge.Unsupported:
+        clingo_used = False
 
-    clean = naive.clean_model(program)
-    S = check_model(program, model_certificate(model))
-    stats = {"derivados": len(engine_set - set(program.facts)), "status": {}}
+    taint = naive.taints(program, ref)
+    S = check_model(program, model_certificate(model), model.indeterminate)
+    stats = {"derivados": len(engine_set - set(program.facts)), "status": {}, "clingo": clingo_used}
     for atom in ground_atoms(program):
         st = status_of(model, atom)
-        exp = naive.expected_status(program, ref, clean, atom)
+        exp = naive.expected_status(program, ref, taint, atom, ref_indet)
         assert (st.value, st.qualifier) == exp, f"seed {seed}: status de {atom}: {st} != {exp}\n{src}"
         neg = Atom(atom.pred.negated(), atom.args)
         proof = proof_tree(model, atom) if atom in model else None
         neg_proof = proof_tree(model, neg) if neg in model else None
-        check_status(program, atom, st.value, st.qualifier, S, proof, neg_proof)
+        check_status(program, atom, st.value, st.qualifier, S, proof, neg_proof, model.indeterminate)
         key = str(st)
         stats["status"][key] = stats["status"].get(key, 0) + 1
     return stats
 
 
-def test_differential_random_worlds():
+def _campaign(n: int, needed: tuple, **features) -> dict:
     totals: dict[str, int] = {}
     derived_programs = 0
-    for seed in range(SEED0, SEED0 + N):
-        stats = _run(seed)
+    clingo_runs = 0
+    for seed in range(SEED0, SEED0 + n):
+        stats = _run(seed, **features)
         derived_programs += stats["derivados"] > 0
+        clingo_runs += stats["clingo"]
         for k, v in stats["status"].items():
             totals[k] = totals.get(k, 0) + v
-    # non-triviality: the random worlds must actually exercise every status
-    print("\nstatus totals:", totals, "| programs with derivations:", derived_programs, "/", N)
-    for needed in ("VERDADEIRO(afirmado)", "VERDADEIRO(inferido)", "VERDADEIRO(presumido)",
-                   "FALSO(afirmado)", "FALSO(mundo_fechado)", "CONTRADITORIO", "DESCONHECIDO"):
-        assert totals.get(needed, 0) > 0, f"geração trivial: nenhum caso de {needed}"
-    assert derived_programs >= N // 2
+    print(f"\n{features or 'base'}: status {totals} | com derivações {derived_programs}/{n} | clingo {clingo_runs}/{n}")
+    for k in needed:
+        assert totals.get(k, 0) > 0, f"geração trivial: nenhum caso de {k}"
+    assert derived_programs >= n // 2
+    return totals
+
+
+def test_differential_random_worlds():
+    _campaign(N, ("VERDADEIRO(afirmado)", "VERDADEIRO(inferido)", "VERDADEIRO(presumido)",
+                  "FALSO(afirmado)", "FALSO(mundo_fechado)", "CONTRADITORIO", "DESCONHECIDO"))
+
+
+def test_differential_aggregates_and_defeasible():
+    _campaign(max(N // 2, 100), ("VERDADEIRO(inferido)", "INDETERMINADO", "FALSO(inferido)"),
+              aggregates=True, defeasible=True)
+
+
+def test_differential_aggregates_with_clingo():
+    totals = _campaign(max(N // 2, 100), ("VERDADEIRO(inferido)",), aggregates=True)
+    assert sum(totals.values()) > 0
 
 
 def test_generated_programs_are_admissible():
     for seed in range(SEED0, SEED0 + 200):
-        try:
-            analyze(parse_program(random_program(seed)))
-        except ProgramError as e:  # pragma: no cover - would be a generator bug
-            pytest.fail(f"seed {seed}: gerador produziu programa inadmissível: {e}")
+        for features in ({}, {"aggregates": True, "defeasible": True}):
+            try:
+                analyze(parse_program(random_program(seed, **features)))
+            except ProgramError as e:  # pragma: no cover - would be a generator bug
+                pytest.fail(f"seed {seed} {features}: gerador produziu programa inadmissível: {e}")
