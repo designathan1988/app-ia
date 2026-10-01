@@ -3,7 +3,55 @@
 Formato no `AGENTS.md` §7. A entrada mais nova fica no topo. Cada entrada tem o commit, o comando exato da medida e
 os números.
 
+Direção vigente (2026-10-01, Revisão 4 e decisão direta do usuário): o implementador escolhe técnicas e ordem,
+inclusive mudanças de arquitetura justificadas por medidas. Estão revogados o prazo de 2 horas, as ordens de
+método e o critério de aceite das revisões anteriores. Permanecem todas as restrições de integridade.
+Mudança de rumo: priorizar defeitos de aprendizagem demonstrados por testes, começando pela consistência dos
+traços; as tentativas de referências não serão reaplicadas automaticamente. A evidência medida decidirá.
+
 ---
+
+### 2026-10-01 17:04: auditoria do portão e latência sem instrumentação
+- Commit: `1a150a4` (push: ok)
+- O que mudou: `auditoria.py --portao` encaminha para a única avaliação completa; o perfilador acompanha treino,
+  conjuntos, diálogos e ablações dessa execução. O modo padrão continua só em TRAIN+DEV. A latência de inferência
+  será medida separadamente no DEV aquecido, sem perfilador, sem execução e sem acessar gold; estatísticas são
+  restauradas mesmo em caso de erro. Categoria: integridade da avaliação.
+- Medida: `(Get-Process -Id $PID).PriorityClass = 'BelowNormal'; C:/ctv/n/Scripts/python.exe -m pytest -q tests/test_a1_latency.py tests/test_a1_audit_scope.py tests/test_a1_evaluation.py`
+  → 10 testes passaram. Sem novo treino para essa mudança do avaliador. Último DEV real n=60: cand@10 95,0,
+  rank@1 81,7, IR/ação/estado 81,7 / 81,7 / 81,7.
+- Auditoria anterior preservada em `data/cache/a1_audit_isolated_pipeline_raw.json`: 227 enunciados, 284 funções;
+  0 regex, 0 pesos por palavra, 0 legado com efeito; 1 coleção não revisada (`INIT`, pelo identificador de traço
+  `lit`). Revisão da definição confirmou pesos por tipo de evidência, não por palavra. A classificação foi
+  corrigida, mantendo o verificador independente `check_init`; seu teste detecta uma chave lexical artificial.
+- Falhas restantes: as 11 falhas de IR do último DEV; nenhum resultado TEST disponível ainda.
+- Próximo passo: executar o portão completo uma vez, com auditoria integrada e relatório real.
+
+### 2026-10-01 17:02: ganho de consistência salvo e compatibilidade restaurada
+- Commit: `408f676` (push: ok)
+- O que mudou: geração e gold do treino agora recebem o mesmo traço genérico de ação. Pares propriedade/valor
+  são recuperados uma vez por alvo dentro de cada busca, sem cache entre mudanças de pesos. O desempate está
+  somente em `evidencia._from_graph`, preservando a API compartilhada do motor antigo; entidades legadas são
+  filtradas antes do limite de recuperação. Categorias: ranking, candidate generation, integridade.
+- Mudança de rumo: a suíte mostrou que ordenar o recurso compartilhado afetava o motor antigo. A ordenação foi
+  transferida para o consumidor A1, sem remendo linguístico. A publicação reúne a consistência e essa correção
+  de compatibilidade para não deixar um commit dependente da regressão do leitor compartilhado.
+- Antes: `$env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe experiments/a1/avaliar.py --dev > data/cache/a1_dev_deterministic.log`
+  → DEV n=60; cand@1/3/5/10 73,3 / 80,0 / 80,0 / 86,7; rank@1/3/5 75,0 / 81,7 / 81,7;
+  IR/ação/estado 75,0 / 76,7 / 76,7; 173 updates.
+- Depois: `$env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe experiments/a1/avaliar.py --dev > data/cache/a1_dev_isolated_pipeline.log`
+  → DEV n=60; cand@1/3/5/10 **81,7 / 91,7 / 93,3 / 95,0**; rank@1/3/5 **81,7 / 91,7 / 93,3**;
+  IR/ação/estado **81,7 / 81,7 / 81,7**; 301 updates, 59 early updates, 166/167 gold gerados na última época.
+  Tempo até terminar o treino: 147 s; a medida anterior com consistência, sem cache, levou 325 s e teve as mesmas
+  métricas agregadas (`a1_dev_consistency_deterministic.log`). Não se atribui toda variação de tempo somente ao cache.
+- Verificação: `(Get-Process -Id $PID).PriorityClass = 'BelowNormal'; $env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe -m pytest -q tests --ignore=tests/test_web.py > data/cache/a1_tests_isolated_pipeline.log`
+  → **267 testes passaram**. A rodada anterior teve 259 passes e 1 falha em
+  `test_understand::test_place_says_the_side`; os 3 casos desse teste passaram após restaurar o leitor compartilhado.
+- Auditoria: `$env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe experiments/a1/auditoria.py > data/cache/a1_audit_isolated_pipeline.log`
+  → 227 enunciados; resultado e revisão do único alerta de classificação descritos na entrada acima.
+- Falhas restantes: 11 de IR (resolução de entidade, associação propriedade/valor, composição, contexto,
+  polaridade e inserção). DEV atinge a meta de trabalho; isso não demonstra o resultado do TEST.
+- Próximo passo: parar os ajustes no DEV e medir o portão da A1, preservando todos os conjuntos congelados.
 
 ### 2026-10-01 16:23: reprodutibilidade e ordenação da evidência
 - Commit: `68bd7c6` (push: ok)
