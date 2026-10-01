@@ -113,6 +113,24 @@ def _all_literal_kinds() -> dict[str, frozenset]:
     return {name: frozenset(expand(syntax, 0, {name})) for name, syntax in props.items()}
 
 
+@lru_cache(maxsize=1)
+def _w3c_properties() -> dict:
+    return {p["name"]: p for p in _css().get("properties", [])}
+
+
+def reachable(prop: str) -> bool:
+    """A property the builder can set: one of its manifest, or a W3C property that is not a shorthand of
+    longhands the builder has ("padding", "font": set through their longhands; "line-clamp", "user-select": as
+    such)."""
+    builder = _builder_properties()
+    if prop in builder:
+        return True
+    w3c = _w3c_properties().get(prop)
+    if w3c is None:
+        return False
+    return not any(lh in builder for lh in w3c.get("longhands") or [])
+
+
 def literal_kinds(prop: str) -> frozenset:
     return _all_literal_kinds().get(prop, frozenset())
 

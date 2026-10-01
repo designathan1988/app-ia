@@ -160,7 +160,7 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
         return []  # something said to be new has no referent
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
     names = _named(texts + m.names, world)
-    types = _types(content, m.head)
+    types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
     cands: list = []
     cost = 0.0
     notes: tuple = ()
@@ -316,7 +316,7 @@ def values(m: Mention) -> list[Den]:
     for t in m.words:
         if is_literal(t.form) and t.i not in attached:
             out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
-    words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
+    words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM") and not _function_word(t)]
     named = [t for t in words if literal_value(t.form) in m.names]
     if not any(d.kind == "lit" for d in out):
         if named and len(named) == len(words):
@@ -330,7 +330,7 @@ def values(m: Mention) -> list[Den]:
                            ("texto com palavras de significado",) if extra else ()))
         if m.attached and all(not c for c, _ in m.attached):
             # the whole phrase with its caseless parts ("Olá" + "mundo" parsed apart): a text as said
-            whole = [t for t in m.words if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
+            whole = [t for t in m.words if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM") and not _function_word(t)]
             if len(whole) == len([t for t in m.words if t.upos not in ("DET", "PUNCT", "ADP")]):
                 extra = 2.0 if any(meaningful(t) for t in whole if literal_value(t.form) not in m.names) else 0.0
                 out.append(Den("lit", " ".join(t.form for t in whole), 1.0 + extra, frozenset(t.i for t in whole),
@@ -467,7 +467,7 @@ def kinds(m: Mention) -> list[Den]:
         return []
     out = []
     prof = langs.profile()
-    for ty, c, ws in _types(_content(m), m.head):
+    for ty, c, ws in _types(_chain(m), m.head):
         newness = {t.i for t in m.words if fold(t.form.lower()) in prof["new"]}
         out.append(Den("kind", ty, c, ws | newness))
     return out
@@ -682,3 +682,11 @@ def verb_evidence(p: Predicate, tokens=None) -> Evidence:
         ev.known = False
         ev.kinds = {s: u.COST["verbo_fora_do_quadro"] for s in ALL_STATES}
     return ev
+
+
+def _function_word(t) -> bool:
+    """A preposition, article or pronoun of the language, whatever category the tagger gave it ("como none": "como"
+    is no part of the value)."""
+    from .alternatives import _closed_word
+
+    return _closed_word(t.form, langs.current())

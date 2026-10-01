@@ -85,7 +85,11 @@ def _closed_word(word: str, lang: str) -> bool:
     (MorphoBr), or one of the profile's closed classes."""
     low = word.lower()
     prof = langs.profile(lang)
-    closed = set(prof["articles"]) | set(prof["pronouns"]) | set(prof.get("valor_casos", [])) | {prof["of"]}
+    from .understand import FRAMES
+
+    with langs.use(lang):
+        cases = set(FRAMES["valor_casos"])  # (the language's value markers: "para", "como", "to", "as")
+    closed = set(prof["articles"]) | set(prof["pronouns"]) | cases | {prof["of"]}
     if low in closed:
         return True
     if lang == "pt":

@@ -148,9 +148,27 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
     themes = _themes(p, args, ctx)
     places = [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
     out = []
-    for (va, v), (pa, pd) in itertools.product(values_, props):
+    names = {(n.get("name") or "").lower() for n in world.nodes.values()}
+    # a bare word that is a keyword of the property said is its value ("o user-select para none")
+    keyword_values = []
+    from .values import _keywords
+
+    for pa, pd in props:
+        if pd is None or pd.data[0] != "propriedade":
+            continue
+        kws = _keywords(pd.data[1])
+        for a in args:
+            if a.role not in ("result", "attr", "obj", "obl", "adv") or a.role == "obl" and not _value_case(a.case):
+                continue
+            for t in a.mention.words if a.mention is not None else []:
+                if t.i not in pd.words and fold(t.form.lower()) in kws and not is_literal(t.form):
+                    keyword_values.append((a, gr.Den("val", ((pd.data[1], t.form.lower()),), 0.0, frozenset({t.i}))))
+    for (va, v), (pa, pd) in itertools.product(values_ + keyword_values, props):
         if pd is not None and (v.words & pd.words) and v.kind != "measure":
             continue
+        if v.kind == "lit" and isinstance(v.data, str) and v.data.lower() in names:
+            # the name of an element of the page refers to it: read as a text value it costs (DRT)
+            v = gr.Den(v.kind, v.data, v.cost + 2.0, v.words, v.notes)
         owner = pd.data[2] if pd is not None else None
         if owner is not None:
             targets = [(pa, owner)]
@@ -204,7 +222,9 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 explained_side = set()
             # the machine can only reach what the builder has: a CSS shorthand it lacks ("padding", "font") is no
             # state it can set
-            options = [o for o in options if o[0] in builder]
+            from .values import reachable
+
+            options = [o for o in options if reachable(o[0]) or said is not None and said[0] == "atributo"]
             if not options:
                 continue
             best = min(c for _, _, c in options)
@@ -217,6 +237,9 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 value, ask = _scaled(world, nodes[0], prop, v.data)
             cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
                      "value": u._as_keyword(value, prop)} for n in nodes]
+            if said is not None and said[0] == "atributo":
+                # an HTML attribute said ("o id do parágrafo como 'note'"): the element's attributes
+                cons = [{"kind": "field", "id": n, "field": "attributes", "value": {prop: value}} for n in nodes]
             explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
                 ev.particles | explained_side | layer_words
             # (the owner's cost is already in the property said when the element is that owner)
@@ -345,7 +368,8 @@ def _label_spans(tokens) -> list:
     out = []
     for k in range(len(seq)):
         for e, n in lexicon.match(seq, {"propriedade"}, k):
-            if n >= 2 and e.lemmas != (e.id,):
+            # (a multiword label, or a CSS identifier said as such: "line-clamp", "user-select")
+            if n >= 2 and e.lemmas != (e.id,) or n == 1 and e.lemmas == (e.id,) and "-" in e.id:
                 out.append((e.id, frozenset(t.i for t in own[k:k + n])))
                 break
     return out
@@ -712,6 +736,7 @@ def _content_tokens(p: lf.Predicate) -> set:
     return {i for i, t in toks.items() if t is None or (t.upos in ("NOUN", "PROPN", "ADJ", "VERB", "ADV", "NUM", "X")
                                                          or is_literal(t.form)) and t.upos != "PRON"
             or t.upos == "PRON" and i not in subjects and t.deprel.split(":")[0] in ("obj", "obl", "nmod")
+            and fold(t.form.lower()) not in langs.profile()["articles"]
             # (a preposition attaches as case, mark or fixed: one attached otherwise is a word to account for)
             or t.upos == "ADP" and t.deprel.split(":")[0] not in ("case", "mark", "fixed", "compound")}
 
