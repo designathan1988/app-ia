@@ -5,9 +5,9 @@
   `C:\Users\jonathanrodriguesti\.claude\projects\C--Codex-Shared-IA\memory\project-plano-d.md`.
   É o estado e o próximo passo.
 - **Plano em vigor:** [docs/plano_aprendizado.md](docs/plano_aprendizado.md) (Plano D). A compreensão é aprendida
-  de anotação humana pública e medida em frases escritas por outras pessoas. Depois da [auditoria](docs/auditoria.md) (2026-10-01), as etapas em vigor são a D1 e a A1–A4 (§7 do plano):
-  gerar todas as ações possíveis e ranquear com um modelo log-linear aprendido, mais NENHUMA AÇÃO e limiar
-  calibrado. Não se escreve mais nenhum gerador de leituras nem custo à mão.
+  de anotação humana pública e medida em frases escritas por outras pessoas. Em vigor: o **roteiro CCG** [docs/roteiro_ccg.md](docs/roteiro_ccg.md) (2026-10-01): léxico CCG induzido
+  (UBL/FUBL, Kwiatkowski et al.), aprendizado pela execução (Artzi & Zettlemoyer). Etapas E0 a E6 com prazos e
+  portões, comprovadas primeiro por replicação (GeoQuery, MATIS pt/en). Não se escreve mais nenhum gerador de leituras nem custo à mão.
 - **Histórico, não seguir:** [docs/plano_compreensao.md](docs/plano_compreensao.md) (C0 a C6). A forma lógica, a
   ancoragem e a abdução que ele construiu continuam sendo a base. O método dele (rodadas e congelados escritos por
   mim, uma regra por classe de erro) foi abandonado.

@@ -1,5 +1,7 @@
 # Plano D: compreensão aprendida e medida fora de mim
 
+> **Em vigor desde 2026-10-01: [roteiro CCG](roteiro_ccg.md).** Mapeamento aprendido da língua: CCG, léxico induzido (UBL/FUBL) e aprendizado pela execução. Objetivos O1 a O6, etapas E0 a E6, com prazos. A §7 abaixo (A1–A4) foi substituída por ele.
+
 > **Revisado em 2026-10-01 pela [auditoria](auditoria.md).** As etapas D2 a D5 da §5 foram substituídas pela §7: gerar todas as ações possíveis e ranquear com um modelo log-linear aprendido. O motivo: a etapa frase → ação não aprendia de nenhum dado.
 
 Este plano substitui o [plano da compreensão](plano_compreensao.md) (etapas C0 a C6). O plano anterior fica como
