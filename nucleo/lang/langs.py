@@ -125,9 +125,21 @@ def detect(text: str) -> str:
     wordnet plus English function words for English). Portuguese when unsure."""
     from .morph import analyses
 
-    words = [w.lower() for w in re.findall(r"[A-Za-zÀ-ÿ']+", text)]
+    # (a name is no evidence of the language: "Please center the Café Aurora heading" is English; names are the
+    # capitalised words not starting a sentence)
+    raw = re.findall(r"[A-Za-zÀ-ÿ']+|[.!?]", text)
+    kept, start = [], True
+    for w in raw:
+        if w in ".!?":
+            start = True
+            continue
+        if not (w[:1].isupper() and not start):
+            kept.append(w)
+        start = False
+    words = [w.lower() for w in kept]
     if not words:
         return "pt"
+    text = " ".join(words)
     en_fn = PROFILES["en"]["articles"] | PROFILES["en"]["modals"] | {w for ws in PROFILES["en"]["locais"].values()
                                                                        for p in ws for w in p.split()}
     pt = sum(1 for w in words if analyses(w))

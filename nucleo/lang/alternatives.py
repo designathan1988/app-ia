@@ -89,6 +89,8 @@ def _closed_word(word: str, lang: str) -> bool:
 
     with langs.use(lang):
         cases = set(FRAMES["valor_casos"])  # (the language's value markers: "para", "como", "to", "as")
+        # and the words of its place locutions ("antes", "depois", "before", "after", "into")
+        cases |= {w for locs in FRAMES["locais"].values() for loc in locs for w in loc.split()}
     closed = set(prof["articles"]) | set(prof["pronouns"]) | cases | {prof["of"]}
     if low in closed:
         return True

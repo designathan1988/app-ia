@@ -147,21 +147,29 @@ def _cross_named(m: Mention, world) -> list:
 
     lang = langs.current()
     other = "pt" if lang == "en" else "en"
+    toks = [t for t in m.words if t.upos in ("NOUN", "PROPN", "ADJ") and not is_literal(t.form)]
+    mine = {t.i: {c for c, cost in concepts.concepts_of(lexicon.lemma_of(t.form), lang)[:3]} for t in toks}
+    with langs.use(other):
+        stop = set(langs.profile(other)["articles"]) | {fold(langs.profile(other)["of"])}
     out = []
-    for t in _content(m):
-        if t.upos not in ("NOUN", "PROPN", "ADJ") or is_literal(t.form):
+    for nid, n in world.nodes.items():
+        words = [w for w in _name_key(n["name"] or "") if w not in stop]
+        if not words:
             continue
-        mine = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(t.form), lang)[:3]}
-        if not mine:
-            continue
-        for nid, n in world.nodes.items():
-            key = _name_key(n["name"] or "")
-            if len(key) != 1:
-                continue
+        used = set()
+        for w in words:  # every content word of the name, said in this language, in any order ("card text")
             with langs.use(other):
-                theirs = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(n["name"]), other)[:3]}
-            if mine & theirs:
-                out.append((nid, frozenset({t.i}), 0.5))
+                theirs = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(w), other)[:3]}
+            hit = next((i for i, cs in mine.items() if i not in used and cs & theirs), None)
+            if hit is None:
+                break
+            used.add(hit)
+        else:
+            out.append((nid, frozenset(used), 0.5))
+    # the name that explains the most words of the phrase ("card text" is «Texto do cartão», not «Cartão»)
+    if out:
+        most = max(len(ws) for _, ws, _ in out)
+        out = [x for x in out if len(x[1]) == most]
     return out
 
 

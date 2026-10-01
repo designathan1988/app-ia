@@ -275,7 +275,8 @@ def _declarative(top, tokens, kids, p) -> bool:
     or past, with no auxiliary (an auxiliary is prospective or modal: "vai ser", "will be")."""
     from .morph import analyses
 
-    subj = [x for x in p.role("subj") if isinstance(x, Mention)]
+    # (a subject has no preposition, UD nsubj: a phrase with one is no subject, "underline the card" is no statement)
+    subj = [x for r, w, x in p.roles if r == "subj" and not w and isinstance(x, Mention)]
     if not subj or not any(t.i < top.i for m in subj for t in m.words):
         return False
     if any(fold(m.head.form.lower()) in langs.profile().get("addressee", set()) for m in subj):

@@ -110,7 +110,7 @@ def _case_tokens(m: lf.Mention) -> set:
     if m is None:
         return set()
     case = {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i and
-            t.deprel.split(":")[0] in ("case", "mark")}
+            t.deprel.split(":")[0] in ("case", "mark") and not _open_class(t)}
     return case | {t.i for t in m.words if t.head in case and t.deprel.split(":")[0] == "fixed"}
 
 
@@ -790,8 +790,16 @@ def _content_tokens(p: lf.Predicate) -> set:
                                                          or is_literal(t.form)) and t.upos != "PRON"
             or t.upos == "PRON" and i not in subjects and t.deprel.split(":")[0] in ("obj", "obl", "nmod")
             and fold(t.form.lower()) not in langs.profile()["articles"]
-            # (a preposition attaches as case, mark or fixed: one attached otherwise is a word to account for)
-            or t.upos == "ADP" and t.deprel.split(":")[0] not in ("case", "mark", "fixed", "compound")}
+            # (a preposition attaches as case, mark or fixed: one attached otherwise is a word to account for; and a
+            # word the lexicon knows only as an open-class word is one, whatever the tagger said: "underline")
+            or t.upos == "ADP" and (t.deprel.split(":")[0] not in ("case", "mark", "fixed", "compound")
+                                    or _open_class(t))}
+
+
+def _open_class(t) -> bool:
+    from .alternatives import _closed_word, categories
+
+    return bool(categories(t.form, langs.current())) and not _closed_word(t.form, langs.current())
 
 
 def _meaningful(t) -> bool:
@@ -817,7 +825,7 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
     args = _args(p, world, ev.particles)
     for a in args:
         # the phrase whose preposition is part of the verb is its object ("get rid of the image")
-        cases = _case_tokens(a.mention)
+        cases = {t.i for t in a.mention.words if t.head == a.mention.head.i and t.deprel.split(":")[0] in ("case", "mark")}
         if a.role in ("obl", "adv") and cases and cases <= set(ev.particles):
             a.role, a.case = "obj", ""
     lemmas = {t.i: lexicon.lemma_of(t.form) for t in tokens}
