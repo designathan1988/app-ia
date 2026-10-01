@@ -624,6 +624,25 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - um ordinal deixado de fora custa como palavra com significado.
 - **Medidas:** regressão 246 com 0 errados; rodadas 7 a 12 com 0 errados; M5 93,7% e 0 silenciosos.
 
+### Congelado v6 (2026-10-01), medido uma vez: **portão aprovado**
+- `experiments/congelado6.py` (hash 4afe86f30712): uma página nova (curso online), 54 pedidos e 16 perguntas.
+  Alguns elementos têm o nome padrão do editor e são conhecidos pelo texto.
+
+  | Motor | Pedidos (certos/perguntou/ERRADO) | Perguntas |
+  |---|---|---|
+  | Novo | **46/8/0** | **16/16** |
+  | Antigo | 17/31/6 | — |
+
+- **0 execuções erradas: é o primeiro conjunto congelado com a meta cumprida.**
+- Errados nos portões: v1 5, v2 3, v3 6, v4 1, v5 2, **v6 0**.
+- As 8 perguntas que sobraram são classes para a próxima rodada:
+  - referência pelo texto com hífen ("o botão Inscreva-se");
+  - título conhecido pelo texto entre títulos de nome padrão ("o título Fundamentos");
+  - "Esconde o logo e depois apaga a citação" com dois sentidos empatados;
+  - "light gray" × "gray";
+  - "remove the italics from the quote";
+  - cortesia seguida de pedido em inglês ("Thanks! Now underline the credits.").
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
