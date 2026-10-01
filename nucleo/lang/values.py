@@ -30,6 +30,7 @@ from functools import lru_cache
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CACHE = ROOT / "data" / "cache" / "valores_pt.json"
 TRANSLATIONS = ROOT / "data" / "cache" / "traducoes_css.json"
+SOURCES: dict = {}  # (word, property, value) -> which sources say it ("traducao", "descricao")
 MAX_KEYWORDS = 2  # a word naming more keywords than this ("bloco": block, and resma, quadra...) names none
 STOP = {"o", "a", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "que", "e",
         "é", "se", "com", "por", "para", "ao", "à", "igual", "mesmo", "elemento", "valor", "caixa", "box", "conteúdo",
@@ -291,11 +292,13 @@ def index() -> dict[str, list[tuple[str, str]]]:
         # value ("direita" for text-align: right, though "Direita" also labels the property right) is kept
         if prop in props and value in _keywords(prop) and not (translated and word in heads):
             pairs.setdefault(word, set()).add((prop, value))
+            SOURCES.setdefault((word, prop, value), set()).add("traducao" if translated else "descricao")
 
     trans = _load(TRANSLATIONS)
     for prop in props:
         for value in _keywords(prop) - GLOBAL:
             add(fold(value), prop, value)  # the keyword as users type it
+            SOURCES[(fold(value), prop, value)] = {"palavra-chave"}
             first_verb = True
             for w in trans.get(value, []):
                 if {"A", "N"} & _pos(w) and "INF" not in _pos(w):
@@ -400,3 +403,9 @@ if __name__ == "__main__":
     res = build(Fetcher(ROOT / "data" / "cache" / "web", min_delay=0.5))
     print(len(res) - 1, "propriedades com valores descritos em português;",
           len(_load(TRANSLATIONS)) - 1, "palavras-chave com tradução")
+
+
+def only_translated(word: str, prop: str, value: str) -> bool:
+    """Whether a value name rests on a dictionary translation alone (no description, catalog or keyword)."""
+    index()
+    return SOURCES.get((fold(word), prop, value), {"traducao"}) == {"traducao"}

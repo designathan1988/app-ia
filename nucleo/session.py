@@ -15,8 +15,10 @@ from .builder.client import Builder
 from .builder.effects import CACHE, learn, load_model
 from .builder.knowledge import load_domains
 from .builder.planner import Planner
-from .lang import learned
-from .lang.understand import World, gapped_clauses, split_clauses, understand
+from types import SimpleNamespace
+
+from .lang import dialogue, learned
+from .lang.understand import FRAMES, World, gapped_clauses, split_clauses, understand
 
 
 def low_priority() -> None:
@@ -41,12 +43,18 @@ class Session:
         self.state = builder.call("setup", document=document, selection=[], locale=locale)["state"]
         self.history: list[Answer] = []
         self.last_reading: tuple | None = None  # (verb, frame) of the last executed request
+        self.dialog = dialogue.State()  # the open question, and the last thing done (for "o mesmo no botão")
 
     def document(self) -> dict:
         return self.b.call("stateOf", state=self.state)
 
     def ask(self, text: str) -> Answer:
-        """One request, or several joined by "e (depois)": then all of them or none (atomic)."""
+        """One request, or several joined by "e (depois)": then all of them or none (atomic). A reply to the
+        system's own question, or an elliptical follow-up of the last action, is read as such first."""
+        reply = self._continue_dialogue(text)
+        if reply is not None:
+            self.history.append(reply)
+            return reply
         clauses = split_clauses(text)
         if len(clauses) <= 1:
             gapped = gapped_clauses(text)
@@ -75,17 +83,94 @@ class Session:
         doc = self.document()
         return understand(text, World.from_document(doc["document"], doc["selection"])).decision == "executar"
 
-    def _ask_one(self, text: str) -> Answer:
+    def _world(self) -> World:
         doc = self.document()
-        u = understand(text, World.from_document(doc["document"], doc["selection"]))
+        return World.from_document(doc["document"], doc["selection"])
+
+    def _continue_dialogue(self, text: str) -> Answer | None:
+        p, self.dialog.pending = self.dialog.pending, None
+        if p is not None:
+            choice = dialogue.choose(p, text)
+            if choice == "nao":
+                return Answer(text, "comando", "Certo, nada foi feito.", [], True)
+            if choice is not None:
+                a = self._execute(text, choice, choice.paraphrase)
+                self.history.pop()
+                if a.ok and choice.verb:
+                    self._induce(choice.verb, choice.frame, p.text)
+                return a
+            if p.verb:
+                # the reply to "what does «x» do?" shows it: do that, and learn the verb's class from it
+                u = understand(text, self._world())
+                if u.decision == "executar":
+                    a = self._execute(text, u.best, u.message)
+                    self.history.pop()
+                    if a.ok:
+                        a.message += " " + self._learn_from_example(p.verb, u.best, f"{p.text} = {text}")
+                    return a
+        if self.dialog.last_constraints and dialogue.is_ellipsis(text) and not self._understood(text):
+            node = dialogue.ellipsis_target(text, self._world())
+            if node is not None:
+                cons = dialogue.repeat_on(self.dialog.last_constraints, self.dialog.last_nodes, node)
+                from .lang.understand import paraphrase
+
+                r = SimpleNamespace(constraints=cons, verb="", frame="elipse", paraphrase=paraphrase(cons, self._world()))
+                a = self._execute(text, r, f"O mesmo: {r.paraphrase}")
+                self.history.pop()
+                return a
+        return None
+
+    def _learn_from_example(self, verb: str, reading, sentence: str) -> str:
+        """What an unknown verb means, from the request the user gave as its example: the change it made, said in
+        the core language and without its element ("definir o peso da fonte como bold"), so the verb then works on
+        any element. Generated from the constraints, not copied from the reply."""
+        from .lang.understand import _label, _regular_infinitives
+
+        inf = (_regular_infinitives(verb) or [verb])[0]
+        c = reading.constraints[0] if len(reading.constraints) == 1 else None
+        body = None
+        if c and c["kind"] == "style":
+            body = f"definir o {_label('propriedade', c['property']).lower()} como {c['value']}"
+        elif c and c["kind"] == "command":
+            body = c["label"].lower()
+        if body:
+            learned.add_verb(inf, body, sentence, "usuario")
+            return f"Aprendi: «{inf}» = «{body}»."
+        if self._induce(inf, reading.frame, sentence):
+            return f"Aprendi: «{inf}» age como «{reading.verb}»."
+        return ""
+
+    def _induce(self, verb: str, frame: str, sentence: str) -> bool:
+        """A verb confirmed in a frame's meaning joins that frame's class (induction from one confirmed use)."""
+        if any(f["id"] == frame for f in FRAMES["quadros"]) and not any(verb in f["verbos"] for f in FRAMES["quadros"]):
+            learned.add_to_class(verb, frame, sentence, "usuario")
+            return True
+        return False
+
+    def _ask_one(self, text: str) -> Answer:
+        world = self._world()
+        u = understand(text, world)
         if u.decision == "aprendido":
             a = Answer(text, u.decision, u.message, [], True)
             self.history.append(a)
             return a
         if u.decision != "executar":
+            self.dialog.pending = dialogue.options_from(u, world)
             a = Answer(text, u.decision, u.message, [], False)
             self.history.append(a)
             return a
+        return self._execute(text, u.best, u.message)
+
+    def _execute(self, text: str, reading, message: str) -> Answer:
+        """Carry out one reading (its constraints) on the document; on success it becomes the last thing done."""
+        u = SimpleNamespace(best=reading, message=message)
+        a = self._carry_out(text, u)
+        if a.ok and a.decision == "executado":
+            self.dialog.last_constraints = reading.constraints
+            self.dialog.last_nodes = [c["id"] for c in reading.constraints if isinstance(c.get("id"), str)]
+        return a
+
+    def _carry_out(self, text: str, u) -> Answer:
         if any(str(c.get("type", "")).startswith("estrutura:") for c in u.best.constraints):
             return self._build_structure(text, u)
         if any(c["kind"] == "command" for c in u.best.constraints):

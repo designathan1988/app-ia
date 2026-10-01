@@ -38,6 +38,7 @@ class CommandVerb:
     label: str
     rest: tuple  # lemmas of the label after the verb, which the sentence must also say
     flag: str | None  # the node field the command switches, when it is a toggle
+    english: str = ""  # the verb of the command's English label ("hide")
 
 
 def _qualifying(root: str | None = None):
@@ -87,14 +88,14 @@ def table(root: str | None = None) -> dict[str, list[CommandVerb]]:
         # read from the document when the verb is used
         flag = fields[0] if len(fields) == 1 and fields[0] not in STRUCTURAL else None
         rest = lemma_seq(" ".join(words[1:]))
-        out.setdefault(first, []).append(CommandVerb(first, cid, label, rest, flag))
+        en = (english.get(c.get("labelKey") or "", "").split() or [""])[0].lower()
+        out.setdefault(first, []).append(CommandVerb(first, cid, label, rest, flag, en))
         # other Portuguese verbs for the same action: the first verbs a dictionary gives for the English label's
         # verb ("Hide" -> esconder, ocultar)
-        en = (english.get(c.get("labelKey") or "", "").split() or [""])[0].lower()
         verbs = [w for w in translations.get(en, []) if "INF" in values._pos(w)][:2]
         for v in verbs:
             if v != first and not any(x.command == cid for x in out.get(v, [])):
-                out.setdefault(v, []).append(CommandVerb(v, cid, label, rest, flag))
+                out.setdefault(v, []).append(CommandVerb(v, cid, label, rest, flag, en))
     return out
 
 

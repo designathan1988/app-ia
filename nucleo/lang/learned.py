@@ -72,9 +72,26 @@ def add_phrase(phrase: str, kind: str, entity: str, sentence: str, by: str) -> N
     lexicon.load.cache_clear()
 
 
+def classes() -> dict:
+    """verb -> the frame it was induced to belong to, from use."""
+    return {v: e["quadro"] for v, e in _load().get("classes", {}).items()}
+
+
+def add_to_class(verb: str, frame: str, sentence: str, by: str) -> None:
+    """Induction from use (one confirmed example): a verb the system did not know, used in a request whose meaning
+    was confirmed (the user kept the result, or answered the question), joins the verb class of that meaning's frame,
+    the way a verb class is learned from the frames it is seen in (Levin, VerbNet). It then works with any object
+    and value, not only the ones of that sentence."""
+    d = _load()
+    d.setdefault("classes", {})[verb] = {"quadro": frame, "frase": sentence, "por": by,
+                                         "quando": datetime.datetime.now().isoformat(timespec="seconds")}
+    _save(d)
+
+
 def forget(word: str) -> bool:
     d = _load()
-    hit = d["verbos"].pop(word, None) or d["expressoes"].pop(word, None) or d.setdefault("estruturas", {}).pop(word, None)
+    hit = d["verbos"].pop(word, None) or d["expressoes"].pop(word, None) or \
+        d.setdefault("estruturas", {}).pop(word, None) or d.setdefault("classes", {}).pop(word, None)
     _save(d)
     lexicon.load.cache_clear()
     return hit is not None

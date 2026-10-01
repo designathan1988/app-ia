@@ -49,7 +49,7 @@ COST = {"verbo_fora_do_quadro": 4.0, "referente_ambiguo": 2.5, "referente_por_ti
         "palavra_sem_explicacao": 1.0, "tipo_diferente_do_nome": 2.0, "local_ausente": 0.5,
         "artigo_como_preposicao": 0.5, "objeto_com_preposicao": 1.0, "definido_para_novo": 1.0,
         "indefinido_para_existente": 2.0, "definido_com_referente": 3.0,
-        "tipo_de_valor_incompativel": 3.0, "propriedade_pelo_valor": 1.0, "significado_inferido": 1.0, "valor_primeiro": 0.3, "palavra_com_significado_ignorada": 3.0}
+        "tipo_de_valor_incompativel": 3.0, "propriedade_pelo_valor": 1.0, "significado_inferido": 1.0, "significado_pelo_dicionario": 0.5, "valor_primeiro": 0.3, "palavra_com_significado_ignorada": 3.0}
 LIMIT = 4.0
 
 
@@ -73,6 +73,7 @@ class Reading:
     ambiguous: list = field(default_factory=list)  # candidate nodes when a referent was not unique
     unknown_verb: bool = False
     verb: str = ""
+    uncertain: bool = False  # its meaning came through the dictionary by an indirect path: confirm before acting
 
 
 @dataclass
@@ -125,9 +126,17 @@ def _subtree(tokens: list[Token], root: int) -> list[Token]:
     return [t for t in tokens if t.i in keep]
 
 
+def _in_frame(lemma: str, frame: dict | None = None) -> bool:
+    """Whether a verb belongs to a frame's class (or to any): listed in frames.json, or induced from use."""
+    induced = learned.classes().get(lemma)
+    if frame is not None:
+        return lemma in frame["verbos"] or induced == frame["id"]
+    return induced is not None or any(lemma in f["verbos"] for f in FRAMES["quadros"])
+
+
 def _known_verb(lemma: str) -> bool:
     """A verb with a meaning: in a frame, taught by the user, the label of a builder command, or naming a value."""
-    return any(lemma in f["verbos"] for f in FRAMES["quadros"]) or lemma in learned.verbs() or \
+    return _in_frame(lemma) or lemma in learned.verbs() or \
         lemma in command_verbs.table() or bool(_verb_value_pairs(lemma))
 
 
@@ -147,12 +156,18 @@ def _participle_pairs() -> dict:
     from .morph import analyses
 
     out: dict = {}
+    PARTICIPLE_WORD.clear()
     for word, pairs in value_index().items():
         for lemma, tags in analyses(word):
             if tags.startswith("V+PTPST"):
                 out.setdefault(lemma, [])
                 out[lemma] += [pr for pr in pairs if pr not in out[lemma]]
+                for pr in pairs:
+                    PARTICIPLE_WORD[(lemma,) + pr] = word
     return out
+
+
+PARTICIPLE_WORD: dict = {}  # (verb, property, value) -> the participle that names the value
 
 
 def _verb_value_pairs(lemma: str) -> list:
@@ -175,7 +190,7 @@ def _predicate(tokens: list[Token]) -> Token | None:
                     continue
             break
     if pred is not None and pred.upos in ("VERB", "AUX") and pred.lemma not in MODALS and \
-            any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
+            _in_frame(pred.lemma):
         return pred
     for k, t in enumerate(tokens):  # lexical reranking: the first word that can be a frame verb
         if _politeness(tokens, k):
@@ -187,7 +202,24 @@ def _predicate(tokens: list[Token]) -> Token | None:
     if pred is None or pred.upos not in ("VERB", "AUX") or pred.lemma in MODALS:
         verbs = [t for t in tokens if t.upos == "VERB" and t.lemma not in MODALS]
         pred = verbs[0] if verbs else pred
+    # a request opens with its verb: when the first word is a verb the wordnet knows (in any of its regular
+    # forms: "delete" -> "deletar"), it is the predicate, even if the tagger read it otherwise
+    first = next((k for k in range(len(tokens)) if not _politeness(tokens, k) and tokens[k].upos != "PUNCT"), None)
+    if first is not None and (pred is None or pred.upos not in ("VERB", "AUX") or pred.i != tokens[first].i):
+        verb = _graph_verb(tokens[first].form)
+        if verb and (pred is None or pred.upos not in ("VERB", "AUX")):
+            tokens[first].lemma, tokens[first].upos = verb, "VERB"
+            return tokens[first]
     return pred
+
+
+def _graph_verb(form: str) -> str | None:
+    from . import concepts
+
+    for inf in morph_lemmas(form, "V") + _regular_infinitives(form):
+        if concepts.concepts_of(inf, "pt", "v"):
+            return inf
+    return None
 
 
 def _politeness(tokens: list[Token], k: int) -> bool:
@@ -322,6 +354,8 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
     named_by_type = bool(names and type_hits) and all(
         lexicon.lemma_of(world.nodes[n]["name"] or "") in type_hits[0][0].lemmas for n in names)
     explained = (type_hits[0][1] if type_hits else 0) + (1 if names and not named_by_type else 0)
+    if named_by_type and len([n for n, v in world.nodes.items() if v["type"] == typ]) > 1:
+        names = []  # "o título" with two titles: the default name "Título" does not single one out
     if names:
         cands = [n for n in names if typ is None or world.nodes[n]["type"] == typ]
         if cands:
@@ -535,7 +569,7 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
         return []
     pieces = _pieces(tokens, pred)
     out: list[Reading] = []
-    frames = [f for f in FRAMES["quadros"] if pred.lemma in f["verbos"]]
+    frames = [f for f in FRAMES["quadros"] if _in_frame(pred.lemma, f)]
     base_cost = 0.0
     if not frames:
         frames = FRAMES["quadros"]
@@ -545,6 +579,7 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
     extra = _command_readings(pred.lemma, pieces, world, in_frame=not base_cost)
     if base_cost:
         extra += _verb_value_readings(pred.lemma, pieces, world)
+        extra += _dictionary_readings(pred.lemma, pieces, world)
     for r in extra:
         r.verb = pred.lemma
         out.append(r)
@@ -561,6 +596,53 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
 
 
 KINDS = {"tipo", "propriedade", "atributo", "estado", "breakpoint"}
+
+
+def _dictionary_readings(lemma: str, pieces: list[Piece], world: World) -> list[Reading]:
+    """A verb the system does not know, read through what the dictionary says it means (``grounding``): a synonym
+    that is a known verb or command ("esconder" ~ "ocultar"), a translation that is a value ("sublinhar" ->
+    underline), or the property family its definition names ("pintar: aplicar ... uma cor" -> a color property).
+    Each meaning gives the readings it allows for this sentence; abduction then weighs them against everything the
+    sentence says ("pinte o título de vermelho": only the color meaning explains "vermelho")."""
+    from . import grounding
+
+    out: list[Reading] = []
+    value_frame = next(f for f in FRAMES["quadros"] if f.get("valor_rotulado"))
+    for m in grounding.meanings(lemma, "V"):
+        rs: list[Reading] = []
+        if m.kind == "comando":
+            verbs = [cv for vs in command_verbs.table().values() for cv in vs if cv.command == m.target and not cv.rest]
+            rs = _command_readings(lemma, pieces, world, in_frame=False, verbs=verbs[:1])
+        elif m.kind == "acao":
+            rs = [r for f in FRAMES["quadros"] if f["id"] == m.target for r in _frame_readings(f, pieces, world)]
+        elif m.kind == "verbo":
+            for f in FRAMES["quadros"]:
+                if _in_frame(m.target, f):
+                    rs += _frame_readings(f, pieces, world)
+            rs += _command_readings(m.target, pieces, world, in_frame=_in_frame(m.target))
+        elif m.kind == "valor":
+            rs = _verb_value_readings(lemma, pieces, world, pairs=[m.target])
+        elif m.kind in ("familia", "propriedade"):
+            # a verb that means a property ("pintar" -> a color property) means changing a property of that kind:
+            # the sentence's value says which one, and the element's kind which property of the family
+            types = values_mod._builder_properties()
+            family = m.target if m.kind == "familia" else types.get(m.target, {}).get("valueType")
+            for r in _value_readings(value_frame, pieces, world):
+                prop = r.constraints[0].get("property")
+                if types.get(prop, {}).get("valueType") == family:
+                    rs.append(r)
+        for r in rs:
+            r.cost += m.cost + COST["significado_pelo_dicionario"]
+            r.assumptions.insert(0, m.explain(lemma))
+            # a synonym or a translation is near; a chain through definitions to a secondary property is not
+            props = values_mod._builder_properties()
+            prop = r.constraints[0].get("property") if r.constraints else None
+            # the value itself came from a chain of definitions, and nothing else in the sentence says it
+            # ("arredonde o botão": "tornar redondo" -> round): confirm. A value the sentence says ("pinte ... de
+            # vermelho") or a synonym/translation of a known action is corroborated.
+            r.uncertain = m.kind == "valor" and any(how == "definicao" for how, _ in m.path) or                 (m.cost > 1.0 and bool(prop) and not props.get(prop, {}).get("essential"))
+        out += rs
+    return out
 
 
 def _unexplained(pieces: list[Piece], used: set, partial: dict) -> float:
@@ -650,10 +732,10 @@ def _objects(pieces: list[Piece], world: World):
             yield k, ref, c, list(notes), ex
 
 
-def _verb_value_readings(lemma: str, pieces: list[Piece], world: World) -> list[Reading]:
+def _verb_value_readings(lemma: str, pieces: list[Piece], world: World, pairs=None) -> list[Reading]:
     """ "centralize o parágrafo", "justifique o texto": a verb whose participle names a value ("centralizado"),
     applied to the element the sentence names."""
-    pairs = _verb_value_pairs(lemma)
+    pairs = _verb_value_pairs(lemma) if pairs is None else pairs
     readings = []
     for k, ref, c, notes, ex in _objects(pieces, world) if pairs else ():
         node = ref[0]
@@ -667,17 +749,22 @@ def _verb_value_readings(lemma: str, pieces: list[Piece], world: World) -> list[
             # builder's own label for the action
             cost = COST["significado_inferido"] + c + _prior(prop, world.nodes[node]["type"]) +                 _unexplained(pieces, used, explained)
             cons = [{"kind": "style", "id": node, "breakpoint": bp, "state": st, "property": prop, "value": value}]
-            readings.append(Reading("estilo_por_verbo", cons, cost, notes, paraphrase(cons, world),
-                                    ambiguous=ref if len(ref) > 1 else []))
+            r = Reading("estilo_por_verbo", cons, cost, notes, paraphrase(cons, world),
+                        ambiguous=ref if len(ref) > 1 else [])
+            # the verb is the only evidence for the value: when that rests on one dictionary translation alone
+            # ("arredondado" <- "round"), confirm before acting
+            word = PARTICIPLE_WORD.get((lemma, prop, value))
+            r.uncertain = word is not None and values_mod.only_translated(word, prop, value)
+            readings.append(r)
     return readings
 
 
-def _command_readings(lemma: str, pieces: list[Piece], world: World, in_frame: bool) -> list[Reading]:
+def _command_readings(lemma: str, pieces: list[Piece], world: World, in_frame: bool, verbs=None) -> list[Reading]:
     """ "duplique o botão", "oculte o parágrafo", "mova o título para cima": a verb that labels a builder command
     (``command_verbs``) applied to the element the sentence names. The rest of the label must be said too. A verb
     that also has a frame only takes the commands whose label says more than the verb ("Mover para cima")."""
     readings = []
-    for cv in command_verbs.table().get(lemma, []):
+    for cv in (command_verbs.table().get(lemma, []) if verbs is None else verbs):
         if in_frame and not cv.rest:
             continue
         for k, ref, c, notes, ex in _objects(pieces, world):
@@ -1075,7 +1162,7 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
                      for p in pieces if not _reference(p, world)[0])
     if names_prop and not has_value:
         return "falta o valor (por exemplo: «... como 24px»)"
-    if not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
+    if not _in_frame(pred.lemma):
         return f"não conheço o verbo «{pred.lemma}»"
     return f"entendi o verbo «{pred.lemma}», mas não o que ele deve alterar"
 
@@ -1252,7 +1339,7 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
             if cand in taught:
                 definition, pred.lemma = taught[cand], cand
                 break
-    if definition and not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
+    if definition and not _in_frame(pred.lemma):
         # a taught verb: its definition, applied to what this sentence says after the verb
         rest = " ".join(t.form for t in tokens if t.i > pred.i and t.upos != "PUNCT")
         expanded = f"{definition['definicao']} de {rest}" if rest else definition["definicao"]
@@ -1294,4 +1381,10 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
     if rivals:
         options = " ou ".join(f"«{r.paraphrase}»" for r in [best] + rivals[:2])
         return Understanding(text, tokens, readings, "perguntar", f"Você quer dizer {options}?")
+    corroborated = any(not r.uncertain and r.constraints == best.constraints and r.cost - best.cost < 1.0
+                       for r in readings[1:])
+    if best.uncertain and not corroborated:
+        why = f" ({best.assumptions[0]})" if best.assumptions else ""
+        return Understanding(text, tokens, readings, "perguntar",
+                             f"Não tenho certeza{why}: entendi «{best.paraphrase}». É isso? (sim/não)")
     return Understanding(text, tokens, readings, "executar", best.paraphrase)
