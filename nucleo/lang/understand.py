@@ -359,6 +359,15 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
         if t.i != pred.i and (t.lemma in MODALS or t.upos == "PRON" and t.deprel == "nsubj"):
             used.add(t.i)
     pieces: list[Piece] = []
+    # a modifier of the verb said before it ("right align the title", "left-align"): an argument of its own
+    # (a request has no subject: a value word the parser took for one, "center align", is such a modifier too)
+    mods = [t for t in tokens if t.i < pred.i and t.head == pred.i and t.i not in used and
+            t.upos in ("ADJ", "ADV", "NOUN") and
+            (t.deprel in ("advmod", "amod", "compound", "obl", "xcomp", "nmod") or
+             t.deprel == "nsubj" and fold(t.form.lower()) in value_index())]
+    if mods:
+        pieces.append(Piece((), mods))
+        used |= {t.i for t in mods}
     current = Piece((), [])
     for k, t in enumerate(tokens):
         nxt = tokens[k + 1] if k + 1 < len(tokens) else None
@@ -738,6 +747,19 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
     pred = _predicate(tokens)
     if pred is None:
         return []
+    k = tokens.index(pred)
+    if k + 1 < len(tokens) and fold(pred.form.lower()) in value_index():
+        nxt = tokens[k + 1]
+        lemma = (morph_lemmas(nxt.form, "V") or [nxt.form.lower()])[0]
+        if any(_in_frame(lemma, f) for f in FRAMES["quadros"] if f.get("valor_rotulado")):
+            # "left align the button": the tagger read "left" as a verb; a value word before a verb of setting a
+            # value is the compound's modifier, and the next word is the verb
+            pred.upos, pred.deprel, pred.head = "ADJ", "advmod", nxt.i
+            nxt.upos, nxt.lemma, nxt.head, nxt.deprel = "VERB", lemma, 0, "root"
+            for t in tokens:
+                if t.head == pred.i and t is not nxt:
+                    t.head = nxt.i
+            pred = nxt
     _multiword_verb(tokens, pred)
     out = _readings_for(tokens, pred, world)
     # a homograph ("some": somar / sumir) is read with each of its lemmas: the reading that explains the sentence
@@ -1117,6 +1139,31 @@ def _command_readings(lemma: str, pieces: list[Piece], world: World, in_frame: b
 def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]:
     if f.get("valor_rotulado"):
         return _value_readings(f, pieces, world)
+    extra = _naming_readings(f, pieces, world) if f["resultado"] == "field:name" and f["objeto"] == "no" else []
+    return extra + _frame_readings_core(f, pieces, world)
+
+
+def _naming_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]:
+    """ "call the section Intro", "chame a seção Destaque": the new name follows the element with no preposition
+    (two objects); the last name-like word is the name, the words before it are the element."""
+    out = []
+    for k, p in enumerate(pieces):
+        if p.case or len(p.words) < 2:
+            continue
+        last = p.words[-1]
+        if not (last.form[:1].isupper() or is_literal(last.form)):
+            continue
+        head = Piece((), p.words[:-1], p.det)
+        ref, c, notes, ex = _reference(head, world)
+        if len(ref) != 1:
+            continue
+        cons = [{"kind": "field", "id": ref[0], "field": "name", "value": literal_value(last.form)}]
+        cost = c + 0.5 + _unexplained(pieces, {k}, {k: len(p.lemmas)})
+        out.append(Reading(f["id"], cons, cost, list(notes), paraphrase(cons, world)))
+    return out
+
+
+def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Reading]:
     obj_kind = f["objeto"]
     readings = []
     for k, p in enumerate(pieces):
