@@ -489,6 +489,19 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - Por isso o conjunto de regressão foi de 252 para 245 certos: os 7 restantes perguntam, e há 0 errados.
 - **Medidas:** rodada 7 52/4/0; rodada 8 38/5/0; M5 93,1% e 0 silenciosos.
 
+### Congelado v3 (2026-10-01), medido uma vez
+- `experiments/congelado3.py` (hash b7ff1caf6532): uma página nova (academia), 57 pedidos e 20 perguntas.
+- **Pedidos 39/12/6, perguntas 19/1/0. O portão falhou** (a meta é 0 errados). O conjunto está gasto e não será
+  usado para ajuste.
+- As classes visíveis (gerais) vão para uma rodada 10 nova, com outras frases:
+  - detecção da língua contaminada pelos nomes da página;
+  - cor de duas palavras ("cinza claro");
+  - nome com número ("Depoimento 1");
+  - "chama ela de X" depois de criar;
+  - coordenação "e depois" com verbo de remoção;
+  - referência pelo plural do nome ("o título dos planos");
+  - "padding" de todos os lados.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
