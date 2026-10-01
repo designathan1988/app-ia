@@ -83,3 +83,62 @@ própria procura fontes humanas. Nada traduzido por máquina entra como medida.
 Depois de D3, o motor antigo (`understand.py`) e as constantes substituídas são removidos.
 
 ## 6. Registro
+
+### D0 (2026-10-01): medida limpa do motor atual, nos dev externos
+
+Nenhuma correção antes destes números. Scripts em `experiments/externo/`; resultados em
+`data/cache/externo_*_dev.json`.
+
+**Estrutura** (`estrutura.py dev`)
+
+| | UPOS | UAS | LAS |
+|---|---|---|---|
+| Bosque (pt) | 95,3 | 84,3 | 77,0 |
+| PetroGold (pt) | 97,2 | 86,8 | 80,4 |
+| Porttinari (pt) | 96,4 | 86,5 | 80,0 |
+| EWT (en) | 93,7 | 80,8 | 74,0 |
+
+| Universal Propositions (dev) | Predicados P / R / F1 | Argumentos (não rotulados) F1 | subj=A0, obj=A1 |
+|---|---|---|---|
+| Bosque (pt, prata), 7.494 frases | 66,3 / 42,0 / 51,5 | 79,0 | 77,5% |
+| EWT (en, ouro), 2.002 frases | 65,3 / 36,4 / 46,8 | 75,8 | 72,5% |
+
+A forma lógica só monta predicados da oração principal, coordenadas e completivas. Orações relativas, adverbiais e
+nominais ficam de fora, e por isso a cobertura de predicados é de ~40%. Num texto, a maior parte do "quem fez o quê"
+não é representada.
+
+**Ação** (`acao.py dev`): DocEdit, 908 pedidos de outras pessoas, em inglês
+
+| certo | ERRADO | perguntou | leitura certa (executando ou não) |
+|---|---|---|---|
+| 78 (8,6%) | 20 (2,2%) | 810 (89,2%) | 33,0% |
+
+Decisões: não entendi 667, perguntar 78, executar 98, fato 61 (muitos pedidos estão no passado, "Moved X to the
+left", e foram lidos como afirmação), 1 exceção.
+
+Classes dos errados:
+- origem lida como destino ("from right to mid" → `text-align: right`);
+- metade de um pedido duplo executada ("Break the paragraph into 2. Moved the page number ...");
+- palavras ancoradas em propriedades CSS por coincidência ("page", "cursor", "transform-origin", "bottom");
+- "remove page no" → remover a página.
+
+**Segurança** (`seguranca.py dev`): MASSIVE, 2.033 frases por língua, nenhuma sobre a página
+
+| | errados | taxa | exceções |
+|---|---|---|---|
+| pt-PT | 14 | 0,69% | 6 (`IndexError`) |
+| en-US | 18 | 0,89% | 3 (`IndexError`) |
+
+Cerca de 13 dos 32 errados são "create a new list" e "add this item to the list". Num editor de página, criar uma
+lista é uma leitura defensável. O oráculo estrito conta esses casos como erro, e a contagem fica assim registrada.
+Os demais são substantivos ancorados a tipos de elemento por coincidência:
+- "i need a manger" → div;
+- "põe marco paulo" → progress;
+- "no speaking please" → dialog;
+- "tenho um voo" → nav.
+
+**Leitura**
+- O motor quase não entende pedidos reais: 8,6% de acerto contra 93,7% no M5 escrito por mim. Isso confirma o
+  diagnóstico da §1.
+- O erro silencioso é baixo (2,2% e 0,8%), mas não é zero.
+- O maior bloco é "não entendi" (73%): é falta de cobertura, não erro de decisão.
