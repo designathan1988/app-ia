@@ -153,8 +153,22 @@ def _parsed(words, tags):
 
 
 def _shown(w: str) -> str:
-    """The word as the models see it: a literal as a value; a page name joined into one word as its first word,
-    capitalized (a proper noun)."""
+    """The word as the models see it: a literal as a value; a page name joined into one word as a proper noun.
+
+    The Portuguese models read "VALOR" as the noun "valor". The English models never saw it (an unknown capitalized
+    word, which they chain into a proper name with the words after it), so in English a literal is shown as a word
+    of its kind that the English treebank knows: a number for a length or number, a colour word for a colour, a
+    frequent proper noun for a text; and a page name as that proper noun too."""
+    if langs.current() == "en":
+        if is_literal(w):
+            import re as _re
+
+            if _re.match(r"-?\d", w):
+                return "10"
+            if w.startswith("#") or _re.match(r"(rgb|rgba|hsl|hsla|oklch|lab|lch|color)\(", w.lower()):
+                return "red"
+            return "John"
+        return "John" if " " in w else w
     if is_literal(w):
         return "VALOR"
     return w.split(" ")[0].capitalize() if " " in w else w
@@ -209,7 +223,7 @@ def _relabel(words, tags, heads, d) -> str:
     htag = tags[h - 1] if h else "ROOT"
     allowed_base = UNDER_VERB if htag in ("VERB", "AUX", "ADJ", "ADV", "ROOT") else UNDER_NOUN
     allowed = [c for c in parser.labeler.classes if _base(c) in allowed_base]
-    shown = [("VALOR" if is_literal(w) else w) for w in words]
+    shown = [_shown(w) for w in words]
     return parser.labeler.predict(parser._label_features(shown, tags, d, h), allowed)
 
 
@@ -219,10 +233,16 @@ def _attachment_variants(tokens, step: bool = False) -> list[tuple[list[int], li
     phrase split by the parser needs both of its parts moved: "pra Olá mundo")."""
     heads = [t.head for t in tokens]
     out = []
+    roots = [t.i for t in tokens if t.head == 0]
     for t in tokens:
-        if _base(t.deprel) not in MOVABLE or t.upos not in CONTENT + ("PROPN", "NUM", "X", "PRON"):
+        # (a second root is always an error, a sentence has one: "make the note red and bold" left "red" a root;
+        # it is moved under the first)
+        extra_root = t.head == 0 and roots and t.i != roots[0]
+        if not extra_root and (_base(t.deprel) not in MOVABLE or t.upos not in CONTENT + ("PROPN", "NUM", "X", "PRON")):
             continue
         cands = set(_ancestors(heads, t.i)[1:])  # raise: any ancestor above the current head
+        if extra_root:
+            cands.add(roots[0])
         # lower: a noun or verb to the left whose subtree ends right before this dependent's phrase
         cands |= {u.i for u in tokens if u.i < t.i and u.upos in ("NOUN", "PROPN", "VERB", "ADV") and u.i != t.head}
         for h in sorted(cands):
@@ -235,6 +255,74 @@ def _attachment_variants(tokens, step: bool = False) -> list[tuple[list[int], li
                 continue
             out.append((new, [f"{t.form}: {tokens[t.head - 1].form if t.head else 'ROOT'}->{tokens[h - 1].form}"],
                         [t.i], proj))
+    return out
+
+
+def _label_word(t) -> bool:
+    """A word the builder's catalog uses as the label of a field, a property or an element type ("text", "fundo",
+    "heading"), or a field of the frames: it names something of the element, not a state of it."""
+    from . import lexicon
+    from .base import FRAMES
+    from .values import fold
+
+    lem = lexicon.lemma_of(t.form)
+    if fold(lem) in {fold(k) for k in FRAMES["campos"]}:
+        return True
+    return any(e.lemmas == (lem,) for e, _ in lexicon.match((lem,), {"campo", "propriedade", "tipo"}))
+
+
+def _rehead_variants(tokens) -> list:
+    """An object whose last word the parser made its head, though it is the state the verb gives the object ("make
+    the Sobre nós section background yellow", "make the Fachada image 500px wide": the head is "yellow", "wide"): the
+    noun before it becomes the object's head, keeping the words before it, and the last word becomes the verb's
+    secondary predicate (xcomp), keeping the words between them ("500px wide"). One edit: (arcs, edits)."""
+    out = []
+    by_i = {t.i: t for t in tokens}
+    for h in tokens:
+        kids = [t for t in tokens if t.head == h.i]
+        if any(_base(t.deprel) == "cop" for t in kids) and h.upos in ("NOUN", "ADJ") and not _label_word(h):
+            # a copular clause ("is the note italic?", "the note italic" parsed as one phrase): the noun before the
+            # predicate word is its subject
+            nouns = [t for t in kids if t.i < h.i and t.upos in ("NOUN", "PROPN") and
+                     _base(t.deprel) in ("compound", "amod", "flat", "nmod")]
+            if nouns:
+                n = max(nouns, key=lambda t: t.i)
+                arcs = [(t.head, t.deprel) for t in tokens]
+                arcs[n.i - 1] = (h.i, "nsubj")
+                for t in kids:
+                    if t is not n and t.i < n.i and _base(t.deprel) not in ("cop", "aux"):
+                        arcs[t.i - 1] = (n.i, t.deprel)
+                out.append((arcs, [f"{n.form}: sujeito de {h.form}"]))
+            continue
+        verb = by_i.get(h.head)
+        if verb is None or verb.upos != "VERB" or _base(h.deprel) != "obj" or h.upos not in ("NOUN", "ADJ", "PROPN"):
+            continue
+        # the mirror case: the predicate word hung after the object's head ("make the Intro paragraph 400px wide"
+        # with "wide" under "paragraph"): it goes to the verb, with the words between them
+        last = max(tokens, key=lambda t: t.i)
+        if last.head == h.i and last.i > h.i and last.upos in ("NOUN", "ADJ") and not _label_word(last) and \
+                _base(last.deprel) in ("nmod", "amod", "flat", "compound", "appos") and not is_literal(last.form):
+            arcs = [(t.head, t.deprel) for t in tokens]
+            arcs[last.i - 1] = (verb.i, "xcomp")
+            for t in kids:
+                if h.i < t.i < last.i:
+                    arcs[t.i - 1] = (last.i, "obl:npmod" if is_literal(t.form) else t.deprel)
+            out.append((arcs, [f"{last.form}: de {h.form} -> predicado de {verb.form}"]))
+        nouns = [t for t in kids if t.i < h.i and t.upos in ("NOUN", "PROPN") and
+                 _base(t.deprel) in ("compound", "amod", "flat", "nmod")]
+        if not nouns or _label_word(h):
+            continue  # (a word that names a part or a property, "the card text", "the section background", is no state)
+        n = max(nouns, key=lambda t: t.i)  # (the noun right before the predicate word heads the object)
+        arcs = [(t.head, t.deprel) for t in tokens]
+        arcs[n.i - 1] = (verb.i, "obj")
+        arcs[h.i - 1] = (verb.i, "xcomp")
+        for t in kids:
+            if t is not n and t.i < n.i:
+                arcs[t.i - 1] = (n.i, t.deprel)  # (the article and the other modifiers go with the object)
+        for t in tokens:
+            if t.head == n.i and t.i > n.i and t.i < h.i:
+                arcs[t.i - 1] = (h.i, "obl:npmod" if is_literal(t.form) else t.deprel)  # ("500px wide")
+        out.append((arcs, [f"{h.form}: objeto -> predicado de {verb.form}"]))
     return out
 
 
@@ -307,6 +395,13 @@ def analyses(text: str, limit: int = 200) -> list[Analysis]:
         if _key(a.tokens) not in seen:
             add(a.tokens, a.cost, a.edits)
             tag_trees.append(a)
+    # a head-final object re-headed as object + secondary predicate ("make the section background yellow")
+    for a in list(tag_trees):
+        for arcs, edits in _rehead_variants(a.tokens):
+            b = Analysis(make_tokens(words, [t.upos for t in a.tokens], arcs), a.cost + EDIT_COST, a.edits + edits)
+            if _key(b.tokens) not in seen:
+                add(b.tokens, b.cost, b.edits)
+                tag_trees.append(b)
     # one move on every tree, then a second move on the trees that needed at most one edit before
     frontier = tag_trees
     stepped = set()

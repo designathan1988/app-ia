@@ -214,7 +214,7 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 lit = v_lit if v.kind == "measure" else v.data
                 sides_ = langs.profile().get("sides", {})
                 # (a side said anywhere in the clause, "padding below the title" however it was parsed: not all sides)
-                sided_target = t.kind == "place" and t.data[0] in sides_ or                     any(gr.place_relation((fold(x.form.lower()),)) in sides_ and not _grammatical_use(x, tokens)
+                sided_target = t.kind == "place" and t.data[0] in sides_ or                     any(gr.place_relation((fold(x.form.lower()),)) in sides_ and not _discourse_adverb(x, p, tokens)
                         for x in tokens)
                 options += _literal_options(said, lit, ntype,
                                             sided=bool(_side_words(args, va, ta, world)) or sided_target)
@@ -229,7 +229,7 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 # (a side word anywhere in the clause, however the analysis attached it: "padding below the title")
                 sides_ = langs.profile().get("sides", {})
                 x = next((x for x in tokens if gr.place_relation((fold(x.form.lower()),)) in sides_ and
-                          x.i not in v.words and not _grammatical_use(x, tokens)), None)
+                          x.i not in v.words and not _discourse_adverb(x, p, tokens)), None)
                 if x is not None:
                     side_words = (sides_[gr.place_relation((fold(x.form.lower()),))], {x.i})
             if side_words and len({q for q, _, _ in options}) > 1:
@@ -242,6 +242,13 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                     explained_side = set()
             else:
                 explained_side = set()
+            if side_words:
+                # (a longhand of another side contradicts the side said: "margem embaixo do título" is not its top
+                # margin; the side of a longhand is in its CSS name)
+                import re as _re
+
+                options = [o for o in options if not _re.search(r"-(top|bottom|left|right)(-|$)", o[0]) or
+                           _label_has(o[0], side_words[0])]
             # the machine can only reach what the builder has: a CSS shorthand it lacks ("padding", "font") is no
             # state it can set
             from .values import reachable
@@ -823,7 +830,11 @@ def _value_removal(p, args, ev, world) -> list[Cand]:
                 if not props:
                     continue
                 prop = min(props, key=lambda x: x[1])[0]
-                reset = "normal" if "normal" in _keywords(prop) else "initial"
+                # (its initial value, W3C, when it is a keyword: "none" for an underline, "normal" for bold)
+                from .values import _w3c_properties
+
+                initial = str((_w3c_properties().get(prop) or {}).get("initial") or "")
+                reset = initial if initial in _keywords(prop) else "normal" if "normal" in _keywords(prop) else                     "initial"
                 bp, st = world.layer
                 cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop, "value": reset}
                         for n in nodes]

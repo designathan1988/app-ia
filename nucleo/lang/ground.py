@@ -367,7 +367,7 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     explained = set()
     if names:
         # (when the head itself is the name, "the card" for «Cartão», there is no separate type word to check)
-        head_is_name = cross_cost > 0 or any(m.head.i in ws for _, ws in phrase)
+        head_is_name = cross_cost > 0 or any(m.head.i in ws for _, ws in phrase) or             any((world.nodes[n]["name"] or "").lower() == head_text for n in names)  # ("a nota" for «Nota»)
         typed = [n for n in names if head_is_name or not types or
                  any(world.nodes[n]["type"] == ty for ty, _, _ in types)]
         cands = typed or names
@@ -545,7 +545,11 @@ def properties(m: Mention, world) -> list[Den]:
         if owner is None:
             # (the nouns before the label, together: "the menu section background" is the background of the menu
             # section, not of «Menu» and of a section)
-            nouns = [t for t in m.mods if t.upos in ("NOUN", "PROPN") and t.i not in d.words]
+            # (and the names among them: "the Fazer pedido button text", a name the phrase holds as such)
+            attached_words = {x.i for _, a in m.attached for x in a.words}
+            first = min(d.words) if d.words else m.head.i
+            nouns = [t for t in m.words if t.upos in ("NOUN", "PROPN") and t.i not in d.words and t.i < first
+                     and t.i not in attached_words and not is_literal(t.form)]
             from .logic_form import mention as _mention
 
             whole = [_mention(nouns[-1], {nouns[-1].i: nouns[:-1]})] if len(nouns) > 1 else []
@@ -559,6 +563,14 @@ def properties(m: Mention, world) -> list[Den]:
         res.append(Den(d.kind, data, d.cost + (owner.cost if owner else 0.0), words, d.notes,
                        owner.ambiguous if owner else False))
     return res
+
+
+def _field_label(t) -> bool:
+    """Whether a word is the label of an element's field ("texto", "text", "nome", "name": frames.json campos)."""
+    from .base import FRAMES
+
+    campos = {fold(k) for k in FRAMES["campos"]}
+    return fold(t.form.lower()) in campos or fold(lexicon.lemma_of(t.form)) in campos
 
 
 def values(m: Mention) -> list[Den]:
@@ -639,6 +651,8 @@ def values(m: Mention) -> list[Den]:
         if is_literal(t.form):
             continue
         pairs = ix.get(fold(lexicon.lemma_of(t.form)), []) or ix.get(fold(t.form.lower()), [])
+        if t.i == m.head.i and m.det in ("definite", "demonstrative") and _field_label(t):
+            continue  # ("the card text", "o texto do botão": the element's text, not the CSS keyword "text")
         if not pairs and t.i == m.head.i and m.det in ("definite", "demonstrative") and any(
                 e.lemmas != (e.id,) for e, n in lexicon.match((lexicon.lemma_of(t.form),), {"propriedade"}) if n == 1):
             continue  # "o fundo" names the property background; it is not (through the graph) the value bottom

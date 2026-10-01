@@ -138,7 +138,7 @@ def mention(tok, kids) -> Mention:
                     m.attached.append((_case_of(g, kids), mention(g, kids)))
         elif rel in ("nmod", "obl", "acl", "appos"):
             m.attached.append((_case_of(c, kids), mention(c, kids)))
-        elif rel == "conj" and c.upos in ("NOUN", "PROPN", "PRON"):
+        elif rel == "conj" and c.upos in ("NOUN", "PROPN", "PRON", "ADJ"):  # (coordinated values: "red and bold")
             m.conj.append(mention(c, kids))
     if tok.upos == "PROPN" or is_literal(tok.form) or tok.form[:1].isupper() and tok.i > 1:
         # (a capitalised word inside the sentence is a name, whatever category the tagger gave it)

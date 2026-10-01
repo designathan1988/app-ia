@@ -555,6 +555,28 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - "the X button text to 'Y'" lido como afirmação;
   - "the X image 200px wide".
 
+### Rodada 11 (2026-10-01): as classes do congelado v4, em outras frases
+- `experiments/rodada11.py`: uma sexta página (padaria), com 33 pedidos e 8 perguntas.
+- **Limpa: 23/7/3 e 7/1/0. Depois: 33/0/0 e 8/8.**
+- Classes corrigidas, todas gerais:
+  - **análise do inglês:**
+    - os modelos ingleses nunca viram o marcador "VALOR" e o encadeavam num nome próprio; em inglês, um literal
+      aparece aos modelos como uma palavra do seu tipo que o treebank inglês conhece (número, cor, nome próprio
+      frequente do próprio dicionário do etiquetador), e o nome da página como esse nome próprio;
+  - **reanálise estrutural nova:** um objeto cuja última palavra o analisador fez núcleo (ou que ficou pendurada
+    depois do núcleo) é reanalisado como objeto + predicado secundário ("make the X section background yellow",
+    "make the X image 500px wide"), e o mesmo na oração copular ("is the note italic?"). Custa uma edição e nunca
+    usa como predicado uma palavra que é rótulo de campo, propriedade ou tipo;
+  - uma segunda raiz é sempre erro e pode ser religada sob a primeira;
+  - adjetivos coordenados são valores coordenados ("red and bold");
+  - tirar um valor volta ao valor inicial da propriedade (W3C: "none" no sublinhado);
+  - o dono de um campo inclui os nomes antes do rótulo ("the Fazer pedido button text");
+  - uma propriedade de outro lado contradiz o lado dito ("margem embaixo" não é margin-top);
+  - o nome do elemento como núcleo dispensa a checagem de tipo ("a nota" = «Nota»);
+  - o núcleo definido que é rótulo de campo não é valor ("the card text" não é background-clip: text).
+- **Medidas:** regressão 245 com 0 errados; rodadas 7 a 11 com 0 errados (52/4, 41/2, 41/3, 35/2, 33/0); M5
+  93,7% e 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
