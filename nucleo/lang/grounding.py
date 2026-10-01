@@ -142,9 +142,11 @@ def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str | None
 def _meanings(word: str, pos: str | None, depth: int, lang: str) -> tuple[Meaning, ...]:
     """The meanings a word can have for the machine, cheapest first: what it names directly, then the concept
     graph, then the dictionary's synonyms, translations and definitions (for words the wordnets lack)."""
-    found = {(m.kind, m.target): m for m in direct(word)}
-    if found:
-        return tuple(sorted(found.values(), key=lambda m: m.cost))
+    # what the word names directly, merged with the graph (a direct match may be another sense: the verb "hide"
+    # is also the keyword "hide" of empty-cells); for a verb, a value is a weaker meaning than an action
+    found = {}
+    for m in direct(word):
+        found[(m.kind, m.target)] = m
     lemmas = [word]
     from .morph import analyses
 

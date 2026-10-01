@@ -20,6 +20,7 @@ from functools import lru_cache
 PROFILES = {
     "pt": {
         "catalog": "pt-BR.json",
+        "of": "de",
         "articles": {"o", "a", "os", "as", "um", "uma", "uns", "umas"},
         "article_forms": {"a", "o", "as", "os"},
         "definite": {"o", "a", "os", "as", "este", "esta", "esse", "essa", "aquele", "aquela"},
@@ -31,6 +32,7 @@ PROFILES = {
     },
     "en": {
         "catalog": "en.json",
+        "of": "of",
         "articles": {"the", "a", "an"},
         "article_forms": {"the", "a", "an"},
         "definite": {"the", "this", "that", "these", "those"},
@@ -114,6 +116,12 @@ def _english_lemmas() -> dict:
 def english_lemma(word: str, upos: str | None = None) -> str:
     w = word.lower()
     table = _english_lemmas()
+    if upos is None:
+        # a content word without its tag: the noun or adjective reading ("beginning", "heading" are nouns here;
+        # verbs are always lemmatized with their tag)
+        lem = table.get((w, "NOUN")) or table.get((w, "ADJ")) or table.get((w, "PROPN"))
+        if lem:
+            return lem.lower()
     lem = table.get((w, upos)) or table.get((w, None))
     if lem:
         return lem.lower()
@@ -144,6 +152,11 @@ def frame_verbs(frame_id: str, lang: str) -> frozenset:
             # only what that language's wordnet knows as a verb ("pôr" also translates the preposition "by")
             if re.fullmatch(r"[a-z]+( [a-z]+)?", t) and concepts.concepts_of(t, lang, "v"):
                 out.add(t)
+    # and the words of the same concepts in that language (the first senses of each Portuguese verb: the wordnets
+    # share their concepts, so "renomear" and "rename" are one concept)
+    for v in frame["verbos"][:6]:
+        for c, k in concepts.concepts_of(v, "pt", "v")[:2]:
+            out.update(w for w in concepts.words_of(c, lang)[:3] if re.fullmatch(r"[a-z]+( [a-z]+)?", w))
     # and the verb of the English label of the builder command that performs the frame ("Rename", "Set")
     from .builder_commands import FRAME_COMMANDS
     from ..builder.scenarios import load_commands

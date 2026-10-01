@@ -191,7 +191,7 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
     man = pathlib.Path(DEFAULT_BUILDER) / "manifest"
     out: dict[str, list] = {}
 
-    def anchor(entity, label, lang, extra=0.0, limit=4):
+    def anchor(entity, label, lang, extra=0.0, limit=6):
         for c, k in _label_concepts(label, lang)[:limit]:
             out.setdefault(c, []).append((entity, k + extra))
 

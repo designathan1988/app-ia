@@ -65,8 +65,17 @@ def english_verbs(root: str | None = None) -> set[str]:
     return out
 
 
-@lru_cache(maxsize=1)
 def table(root: str | None = None) -> dict[str, list[CommandVerb]]:
+    """The command verbs of the current language."""
+    from . import langs
+
+    return _table(langs.current(), root)
+
+
+@lru_cache(maxsize=4)
+def _table(lang: str, root: str | None = None) -> dict[str, list[CommandVerb]]:
+    if lang != "pt":
+        return _table_other(lang, root)
     from ..builder.effects import load_model
 
     base = pathlib.Path(root or DEFAULT_BUILDER)
@@ -101,3 +110,25 @@ def table(root: str | None = None) -> dict[str, list[CommandVerb]]:
 
 def verbs() -> set[str]:
     return set(table())
+
+
+def _table_other(lang: str, root: str | None = None) -> dict[str, list[CommandVerb]]:
+    """Command verbs of another language, from that language's catalog: the label's first word is a verb its wordnet
+    knows ("Duplicate", "Move up" -> move + up)."""
+    from ..builder.effects import load_model
+    from . import concepts, langs
+
+    base = pathlib.Path(root or DEFAULT_BUILDER)
+    catalog = json.loads((base / "src" / "i18n" / "locales" / langs.profile(lang)["catalog"]).read_text(encoding="utf-8"))
+    writes = load_model().writes
+    out: dict[str, list[CommandVerb]] = {}
+    for cid, c in _qualifying(root):
+        label = catalog.get(c.get("labelKey") or "", "")
+        words = label.lower().split()
+        if not words or "{" in label or not concepts.concepts_of(words[0], lang, "v"):
+            continue
+        fields = [k.split(":", 1)[1] for k in writes.get(cid, {}) if k.startswith("node:")]
+        flag = fields[0] if len(fields) == 1 and fields[0] not in STRUCTURAL else None
+        rest = tuple(w for w in words[1:] if w not in langs.profile(lang)["articles"])
+        out.setdefault(words[0], []).append(CommandVerb(words[0], cid, label, rest, flag, words[0]))
+    return out

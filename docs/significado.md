@@ -115,3 +115,25 @@ As entidades já têm rótulos em inglês no catálogo do builder. Nenhuma regra
 | S4 | Papéis tipados e ação inferida | conjunto rápido de frases livres no nível do entendimento (segundos) |
 | S5 | Diálogo e aprendizado como arestas | testes de diálogo |
 | S6 | Inglês: analisador UD inglês, Open English WordNet, mesmas frases traduzidas | mesmo conjunto rápido em inglês |
+
+## Estado medido (`experiments/m5_livre.py`, nível do entendimento, segundos)
+
+| Conjunto | Frases | Certo | Perguntou ou não entendeu | Errado |
+|---|---|---|---|---|
+| português, ajuste | 56 | 56 | 0 | 0 |
+| português, validação (escrita antes das correções que a avaliam) | 36 | 26 → **35** | 1 | 0 |
+| inglês, ajuste | 25 | 10 → **25** | 0 | 0 |
+| inglês, validação (rodada uma vez antes das correções) | 20 | 13 → **18** | 2 | 0 |
+
+**Honestidade:** os números depois da seta já viram as frases. Por isso a medida limpa é a primeira:
+- português: 26 de 36;
+- inglês: 13 de 20.
+
+Bateria do M5, com o planejador e o juiz do builder: **top-1 92,4%, erro silencioso 0,0%**.
+
+O analisador inglês (UD English-EWT, mesmo modelo linear) dá UPOS 93,7% e LAS 74,6%.
+
+**O que ainda falta:**
+- verbos compostos com nome ("left align");
+- duplo objeto ("call the section Intro");
+- causativos que a WordNet não liga ("sumir com" = remover).

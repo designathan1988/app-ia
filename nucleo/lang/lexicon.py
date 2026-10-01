@@ -162,18 +162,28 @@ def _close(a: str, b: str) -> bool:
 def match(seq: tuple[str, ...], kinds: set[str], start: int = 0) -> list[tuple[Entry, int]]:
     """Entries of the given kinds whose lemma sequence occurs in `seq` at `start`, longest first: (entry, length).
     Exact matches first; a match with typing slips (see ``_close``) only when there is no exact one."""
-    exact, near = [], []
+    exact, reordered, near = [], [], []
     for e in load():
         if e.kind not in kinds or not e.lemmas:
             continue
+        if len(e.lemmas) == 1 and "-" in e.lemmas[0]:
+            # a CSS name said with spaces ("background color" for background-color)
+            n = e.lemmas[0].count("-") + 1
+            if "-".join(seq[start:start + n]) == e.lemmas[0]:
+                exact.append((e, n))
+                continue
         part = tuple(seq[start:start + len(e.lemmas)])
         if len(part) != len(e.lemmas):
             continue
         if part == e.lemmas:
             exact.append((e, len(e.lemmas)))
+        elif len(part) > 1 and sorted(part) == sorted(e.lemmas):
+            # the same words in another order: a label is often written head-first ("Margin top") and said
+            # modifier-first ("top margin")
+            reordered.append((e, len(e.lemmas)))
         elif all(_close(x, y) for x, y in zip(part, e.lemmas)):
             near.append((e, len(e.lemmas)))
-    out = exact or near
+    out = exact + [r for r in reordered if r[1] > max((x[1] for x in exact), default=0)] or near
     out.sort(key=lambda x: -x[1])
     return out
 

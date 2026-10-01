@@ -17,7 +17,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from nucleo.lang.understand import World, understand  # noqa: E402
 
 NODES = {
-    "s": ("Topo", "section", None, ["t", "p", "b", "i"]),
+    "pg": ("Página", "page", None, ["s"]),
+    "s": ("Topo", "section", "pg", ["t", "p", "b", "i"]),
     "t": ("Café Aurora", "heading", "s", []),
     "p": ("Intro", "paragraph", "s", []),
     "b": ("Assinar", "button", "s", []),
@@ -170,6 +171,30 @@ ENGLISH = [
 ]
 
 
+ENGLISH_VALIDATION = [
+    ("could you make the paragraph italic?", S("font-style", "italic", "p")),
+    ("please center the title", S("text-align", "center", "t")),
+    ("left align the button", S("text-align", "left", "b")),
+    ("color the title blue", S("color", "blue", "t")),
+    ("give the section a white background", S("background-color", "white", "s")),
+    ("change the background color of the button to gray", S("background-color", "gray", "b")),
+    ("increase the font size of the paragraph to 20px", S("font-size", "20px", "p")),
+    ("set the width of the image to 300px", S("width", "300px", "i")),
+    ("conceal the image", C("element.toggleHidden", "i")),
+    ("make a copy of the button", C("element.duplicate", "b")),
+    ("erase the paragraph", {"kind": "removed", "id": "p"}),
+    ("get rid of the image", {"kind": "removed", "id": "i"}),
+    ("add a heading at the beginning of the section", {"kind": "added", "type": "heading", "parent": "s"}),
+    ("put an image after the button", {"kind": "added", "type": "image", "parent": "s"}),
+    ("insert a footer", {"kind": "added", "type": "footer"}),
+    ('set the text of the paragraph to "Hello"', {"kind": "field", "field": "text", "value": "Hello"}),
+    ("call the section Intro", {"kind": "field", "field": "name", "value": "Intro"}),
+    ("move the image to the beginning of the section", {"kind": "moved", "id": "i"}),
+    ("the title should be bold", S("font-weight", "bold", "t")),
+    ("do something", "perguntar"),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -206,3 +231,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run("-v" in sys.argv or "-en" in sys.argv, ENGLISH)
     print("inglês:", c, f"de {len(ENGLISH)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run("-v" in sys.argv or "-en" in sys.argv, ENGLISH_VALIDATION)
+    print("inglês, validação:", c, f"de {len(ENGLISH_VALIDATION)} em {time.time() - t:.1f}s")
