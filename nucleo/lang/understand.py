@@ -810,6 +810,10 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     for r in _comparative_readings(tokens, pred, pieces, world):
         r.verb = pred.lemma
         out.append(r)
+    if any(f["id"] in ("estilo", "existir") for f in frames) or base_cost:
+        for r in _sided_readings(pieces, world):
+            r.verb = pred.lemma
+            out.append(r)
     if any(f["id"] == "remover" for f in frames):
         for r in _value_removal_readings(pieces, world):
             r.verb = pred.lemma
@@ -983,6 +987,49 @@ def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
                                                                                                 j: ex})
             out.append(Reading("remover", cons, cost, list(notes), paraphrase(cons, world)))
             break
+    return out
+
+
+def _sided_readings(pieces: list[Piece], world: World) -> list[Reading]:
+    """ "põe uma margem de 10px em cima do botão", "add a 10px margin above the button": a property family
+    ("margem") and a place ("em cima de", "above") that says the side; the property is the one of that family
+    whose label has that side ("margem superior", "margin top"), on the element the place names."""
+    sides = langs.profile().get("sides", {})
+    out = []
+    for k, p in enumerate(pieces):
+        if not p.lemmas or p.case and p.case != _OF():
+            continue
+        for j, q in enumerate(pieces):
+            if j == k or not q.case:
+                continue
+            kind, skip = _place(q.case, q)
+            side = sides.get(kind)
+            if side is None:
+                continue
+            ref, c, notes, ex = _reference(q, world, skip)
+            if len(ref) != 1:
+                continue
+            # the head: any word of the phrase that, with the side, makes a property's label ("margem", "margin")
+            props = [e for head in p.lemmas for e in lexicon.load() if e.kind == "propriedade" and
+                     head in e.lemmas and fold(side) in e.lemmas and len(e.lemmas) == 2]
+            if not props:
+                continue
+            used = {k, j}
+            literal = next((literal_value(t.form) for t in p.words if is_literal(t.form)), None)
+            v = (literal, k) if literal is not None else _value(pieces, used)
+            if v is None or not _value_fits(props[0].id, v[0]):
+                continue
+            used.add(v[1])
+            explained = {k: len(p.lemmas), j: skip + ex, v[1]: len(pieces[v[1]].lemmas)}
+            # (a head after "of" belongs with the phrase before: "20px of padding")
+            for m, r_ in enumerate(pieces):
+                if m == k - 1 and not r_.case:
+                    used.add(m)
+                    explained[m] = len(r_.lemmas)
+            cons = [{"kind": "style", "id": ref[0], "breakpoint": world.layer[0], "state": world.layer[1],
+                     "property": props[0].id, "value": v[0]}]
+            cost = c + _prior(props[0].id, world.nodes[ref[0]]["type"]) + _unexplained(pieces, used, explained)
+            out.append(Reading("estilo", cons, cost, list(notes), paraphrase(cons, world)))
     return out
 
 

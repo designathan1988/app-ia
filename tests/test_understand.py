@@ -233,3 +233,13 @@ def test_constructions(text, expected):
     assert u.decision == "executar", (text, u.message)
     c = u.best.constraints[0]
     assert {k: c.get(k) for k in expected} == expected, (text, c)
+
+
+@pytest.mark.parametrize("text, prop", [
+    ("põe uma margem de 10px em cima do parágrafo Intro", "margin-top"),
+    ("add a 10px margin above the Intro paragraph", "margin-top"),
+    ("put 20px of padding below the title Title", "padding-bottom"),
+])
+def test_place_says_the_side(text, prop):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar" and u.best.constraints[0]["property"] == prop, u.message
