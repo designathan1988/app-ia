@@ -75,9 +75,18 @@ def _args(p: lf.Predicate, world, particles=frozenset()) -> list[Arg]:
     return out
 
 
-def _themes(p: lf.Predicate, args: list[Arg]) -> list[tuple[Arg, gr.Den]]:
+def _themes(p: lf.Predicate, args: list[Arg], ctx: "Context | None" = None) -> list[tuple[Arg, gr.Den]]:
     """The element(s) the predicate is about: the object of an event, else its subject (a copular, obligation or
-    passive clause: "o botão tem que ficar verde")."""
+    passive clause: "o botão tem que ficar verde"); with none said, the element the discourse made salient."""
+    out = _said_themes(p, args)
+    if not out and ctx is not None and ctx.salient and not any(a.role in ("obj", "subj", "iobj") and a.of("kind")
+                                                               for a in args):
+        out = [(Arg("contexto", "", None, []), gr.Den("ref", tuple(ctx.salient), CONTEXT_COST, frozenset(),
+                                                       ("pelo contexto",)))]
+    return out
+
+
+def _said_themes(p: lf.Predicate, args: list[Arg]) -> list[tuple[Arg, gr.Den]]:
     out = []
     # (the recipient of a giving verb is what the state is about: "give the section a white background")
     for role in ("iobj", "obj", "subj"):
@@ -97,11 +106,26 @@ def _value_case(case: str) -> bool:
 
 
 def _case_tokens(m: lf.Mention) -> set:
+    if m is None:
+        return set()
     return {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i}
 
 
+@dataclass
+class Context:
+    """What the discourse so far makes salient (DRT, plan §3.1 "Textos"): the element last acted on or mentioned
+    (for "ele", "it", and for a request that does not say its element), and the property last talked about (for
+    "o título tá pequeno, coloca 36px")."""
+    salient: tuple = ()
+    topic_prop: tuple | None = None
+    new_count: int = 0
+
+
+CONTEXT_COST = 0.5  # an element or property taken from the discourse, not said in the clause
+
+
 # -- the kinds of state -----------------------------------------------------------------------------------------
-def _style(p, args, ev, world) -> list[Cand]:
+def _style(p, args, ev, world, ctx=None) -> list[Cand]:
     u = _u()
     from .values import _builder_properties
 
@@ -112,10 +136,13 @@ def _style(p, args, ev, world) -> list[Cand]:
         values_.append((None, gr.Den("cmp", ev.cmp, 0.0, frozenset({p.head.i}))))
     for pr in ev.pairs:
         values_.append((None, gr.Den("val", (pr,), 0.0, frozenset({p.head.i}))))
-    # a property said, or the text of an element ("o texto do botão branco": the owner's text)
-    props = [(a, d) for a in args for d in a.of("prop")] + \
+    # a property said, or the text of an element ("o texto do botão branco": the owner's text); with none said,
+    # the property the discourse is about ("o título tá pequeno, coloca 36px")
+    topic = [(None, gr.Den("prop", ctx.topic_prop + (None,), CONTEXT_COST, frozenset(), ("pelo contexto",)))] \
+        if ctx is not None and ctx.topic_prop and not any(a.of("prop") for a in args) else []
+    props = topic + [(a, d) for a in args for d in a.of("prop")] + \
         [(a, d) for a in args for d in a.of("field") if d.data[1] == "text" and d.data[2] is not None] + [(None, None)]
-    themes = _themes(p, args)
+    themes = _themes(p, args, ctx)
     places = [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
     out = []
     for (va, v), (pa, pd) in itertools.product(values_, props):
@@ -333,7 +360,7 @@ def _participle_lemma(t) -> str | None:
     return next((lem for lem, tags in analyses(t.form.lower()) if tags.startswith("V+PTPST")), None)
 
 
-def _commands(p, args, ev, world, sentence_lemmas) -> list[Cand]:
+def _commands(p, args, ev, world, sentence_lemmas, ctx=None) -> list[Cand]:
     from . import command_verbs
     from .builder_commands import FRAME_COMMANDS
 
@@ -376,7 +403,7 @@ def _commands(p, args, ev, world, sentence_lemmas) -> list[Cand]:
         if noun is not None:
             themes = [(Arg("obl", c, x, []), d) for c, x in noun.attached for d in gr.references(x, world)]
         else:
-            themes = _themes(p, args)
+            themes = _themes(p, args, ctx)
         for a, t in themes:
             cons = [{"kind": "command", "command": cv.command, "id": n, "label": cv.label,
                      "already": bool(cv.flag and world.nodes[n].get("flags", {}).get(cv.flag))} for n in t.data]
@@ -385,7 +412,7 @@ def _commands(p, args, ev, world, sentence_lemmas) -> list[Cand]:
     return out
 
 
-def _structural(p, args, ev, world) -> list[Cand]:
+def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
     u = _u()
     out = []
     places = [(a, d) for a in args for d in a.of("place")]
@@ -396,7 +423,7 @@ def _structural(p, args, ev, world) -> list[Cand]:
         for k in a.of("kind"):
             # where it goes: a place phrase of the clause, or one attached to the new thing itself ("um parágrafo
             # depois do título": the same place either way)
-            own = [(Arg("obl", c, x, []), d) for c, x in a.mention.attached for d in gr.place(c, x, world)]
+            own = [(Arg("obl", c, x, []), d) for c, x in (a.mention.attached if a.mention else []) for d in gr.place(c, x, world)]
             opts = [(pa, pd) for pa, pd in places if pa is not a] + own or [(None, None)]
             for pa, pd in opts:
                 cost = k.cost + ev.kinds.get("added", CONSTRUCTION if ev.known and pd is not None else 9.0)
@@ -417,14 +444,14 @@ def _structural(p, args, ev, world) -> list[Cand]:
                     cost += u.COST["definido_com_referente"]
                 out.append(Cand("added", [{"kind": "added", "type": k.data, "parent": parent, "index": index}],
                                 cost, explained, notes, amb))
-    for a, t in _themes(p, args):
+    for a, t in _themes(p, args, ctx):
         # removed
         out.append(Cand("removed", [{"kind": "removed", "id": n} for n in t.data],
                         t.cost + ev.kinds.get("removed", 9.0), set(t.words) | {p.head.i}, list(t.notes),
                         list(t.data) if t.ambiguous else []))
         # moved: to a place said by another phrase, or by one attached to the theme itself ("move the title below
         # the paragraph" either way)
-        own = [(Arg("obl", c, x, []), d) for c, x in a.mention.attached for d in gr.place(c, x, world)
+        own = [(Arg("obl", c, x, []), d) for c, x in (a.mention.attached if a.mention else []) for d in gr.place(c, x, world)
                if not d.words & t.words]
         for pa, pd in places + own:
             if pa is a:
@@ -475,9 +502,16 @@ def _value_removal(p, args, ev, world) -> list[Cand]:
     return out
 
 
-def _fields(p, args, ev, world) -> list[Cand]:
+def _css_form(value) -> bool:
+    return isinstance(value, str) and _u()._value_kind(value) in ("length", "number", "color") and         not value.startswith(("'", '"'))
+
+
+def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
     out = []
-    lits = [(a, d) for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content")
+    u = _u()
+    # (an unquoted literal with the form of a CSS value, "36px", "#f00", is a value by its form: as a text it costs)
+    lits = [(a, d if not _css_form(d.data) else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes))
+            for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content")
             and (a.role != "obl" or _value_case(a.case))]
     # a field said with its owner ("o texto do botão", "the button text", "o nome da foto")
     for a in args:
@@ -502,7 +536,7 @@ def _fields(p, args, ev, world) -> list[Cand]:
     for state in ("field:text", "field:name"):
         if state not in ev.kinds or ev.kinds[state] >= 4.0:
             continue
-        targets = _themes(p, args) + [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
+        targets = _themes(p, args, ctx) + [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
         # (a place attached to the text itself: "escreve X no botão" either way)
         targets += [(Arg("obl", c, x, []), d) for la, _ in lits for c, x in la.mention.attached
                     for d in gr.place(c, x, world) if d.data[0] == "dentro"]
@@ -556,7 +590,7 @@ def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
 
 
 # -- the predicate and the sentence -------------------------------------------------------------------------------
-def readings(p: lf.Predicate, world, tokens) -> list[Cand]:
+def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list[Cand]:
     ev = gr.verb_evidence(p, tokens)
     args = _args(p, world, ev.particles)
     for a in args:
@@ -566,15 +600,15 @@ def readings(p: lf.Predicate, world, tokens) -> list[Cand]:
             a.role, a.case = "obj", ""
     lemmas = {t.i: lexicon.lemma_of(t.form) for t in tokens}
     lemmas.update({t.i: fold(t.lemma) for t in tokens if t.upos in ("VERB", "ADP", "ADV")})
-    cands = _style(p, args, ev, world) + _commands(p, args, ev, world, lemmas) + \
-        _structural(p, args, ev, world) + _fields(p, args, ev, world) + _value_removal(p, args, ev, world)
+    cands = _style(p, args, ev, world, ctx) + _commands(p, args, ev, world, lemmas, ctx) + \
+        _structural(p, args, ev, world, ctx) + _fields(p, args, ev, world, ctx) + _value_removal(p, args, ev, world)
     # a causative ("faz o parágrafo sumir", "make the image disappear"): the caused event, its theme the causee
     for r, w, q in p.roles:
         if isinstance(q, lf.Predicate) and r in ("content", "result"):
             causee = [x for rl, _, x in p.roles if rl == "obj" and isinstance(x, lf.Mention)]
             q2 = lf.Predicate(q.head, q.lemma, q.kind, q.act, q.negated,
                               list(q.roles) + ([("obj", "", causee[0])] if causee and not q.role("obj") else []))
-            for c in readings(q2, world, tokens):
+            for c in readings(q2, world, tokens, ctx):
                 c.cost += 0.5
                 c.explained |= {p.head.i}
                 cands.append(c)
@@ -597,80 +631,185 @@ class Interpretation:
     analysis: object
     sentence: object
     act: str
+    context: Context = None
+    facts: list = field(default_factory=list)  # what assertions stated (not done)
 
 
-def interpretations(text: str, world) -> list[Interpretation]:
+def _courtesy(p: lf.Predicate, tokens) -> bool:
+    """A clause that is talk, not a request ("me faz um favor", "por favor", "thanks"): no word but its verb means
+    anything to the machine."""
+    by_i = {t.i: t for t in tokens}
+    ev = gr.verb_evidence(p, tokens)
+    specific = ev.commands or ev.pairs or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
+    return not specific and not any(_meaningful(by_i[i]) for i in _content_tokens(p) if i != p.head.i and i in by_i)
+
+
+def _world_with(world, ctx: Context):
+    """The page as the discourse leaves it: elements created by earlier clauses exist (as placeholders) and the
+    salient element is the one a pronoun points to."""
+    from .understand import World
+
+    return World(dict(world.nodes), list(ctx.salient) or list(world.selection), world.layer)
+
+
+def _after(cands: list, ctx: Context, world) -> Context:
+    """The discourse after a clause: what it acted on is salient; an element it created exists from now on."""
+    salient, topic, n = ctx.salient, ctx.topic_prop, ctx.new_count
+    for c in cands:
+        for k in c.constraints:
+            if k["kind"] == "added":
+                n += 1
+                nid = f"$novo{n}"
+                world.nodes[nid] = {"name": None, "type": k["type"], "parent": k.get("parent"), "index": 0,
+                                    "children": [], "flags": {}, "styles": {}}
+                salient = (nid,)
+            elif k.get("id"):
+                salient = (k["id"],)
+            if k["kind"] == "style":
+                topic = ("propriedade", k["property"])
+    return Context(salient, topic, n)
+
+
+def interpretations(text: str, world, ctx: Context | None = None) -> list[Interpretation]:
+    ctx = ctx or Context()
     out = []
     for a in alternatives.analyses(text):
         s = lf.build(a.tokens)
         if not s.predicates:
             continue
-        total, cons, chosen = a.cost, [], []
+        w = _world_with(world, ctx)
+        total, cons, chosen, facts = a.cost, [], [], []
+        local = ctx
         ok = True
         for p in s.predicates:
-            rs = readings(p, world, a.tokens)
+            rs = readings(p, w, a.tokens, local)
+            if p.act == "assertion":
+                # information: what it says is noted, and what it is about becomes the topic; nothing is done
+                if rs:
+                    facts.append(rs[0])
+                    total += min(rs[0].cost, u_limit())
+                    local = _after([rs[0]], local, w)
+                continue
+            if not rs or rs[0].cost > u_limit():
+                if _courtesy(p, a.tokens):
+                    continue  # talk around the request
             if not rs:
                 ok = False
                 break
             total += rs[0].cost
             cons += rs[0].constraints
             chosen.append(rs[0])
-        if ok:
-            out.append(Interpretation(total, cons, chosen, a, s, s.predicates[0].act))
+            local = _after([rs[0]], local, w)
+            w = _world_with(w, local)
+        if ok and (chosen or facts):
+            out.append(Interpretation(total, cons, chosen, a, s,
+                                      "assertion" if facts and not chosen else s.predicates[0].act, local, facts))
     return sorted(out, key=lambda i: i.cost)
 
 
-def understand(text: str, world, lang: str | None = None):
-    """The new engine's understanding, in the same shape as the old one's (``understand.Understanding``)."""
+def u_limit() -> float:
+    return _u().LIMIT
+
+
+def _sentences(text: str) -> list[str]:
+    """The sentences of a text, at their final punctuation (not inside quotes or numbers)."""
+    import re
+
+    parts, buf, quote = [], "", None
+    for ch in text:
+        buf += ch
+        if ch in "\"“”" and quote is None:
+            quote = "”" if ch == "“" else ch
+        elif quote is not None and ch == quote:
+            quote = None
+        elif quote is None and ch in ".!?;":
+            parts.append(buf)
+            buf = ""
+    if buf.strip():
+        parts.append(buf)
+    out = [re.sub(r"[.;]$", "", p.strip()).strip() for p in parts]
+    return [p for p in out if re.search(r"\w", p)]
+
+
+def understand(text: str, world, lang: str | None = None, ctx: Context | None = None):
+    """The new engine's understanding of a text, in the same shape as the old one's (``understand.Understanding``):
+    each sentence in order, with what the earlier ones made salient."""
     u = _u()
     lang = lang or langs.detect(text)
     with langs.use(lang):
-        its = interpretations(text, world)
-        if not its:
-            return u.Understanding(text, [], [], "nao_entendi", langs.msg("not_understood", why=""), lang)
-        best = its[0]
-        para = u.paraphrase(best.constraints, world)
+        sentences = _sentences(text) or [text]
+        ctx = ctx or Context()
+        work = _world_with(world, Context())
+        results = []
+        for sent in sentences:
+            its = interpretations(sent, work, ctx)
+            r = _decide(sent, its, work, lang)
+            results.append(r)
+            if its:
+                ctx = its[0].context or ctx
+        if len(results) == 1:
+            results[0].text = text
+            return results[0]
+        acting = [r for r in results if r.decision != "fato"]
+        if not acting:
+            return u.Understanding(text, results[0].tokens, [], "fato", results[0].message, lang)
+        failed = next((r for r in acting if r.decision != "executar"), None)
+        if failed is not None:
+            failed.text = text
+            return failed
+        cons = [c for r in acting for c in r.best.constraints]
+        best = u.Reading("texto", cons, sum(r.best.cost for r in acting), [], u.paraphrase(cons, world))
+        return u.Understanding(text, [t for r in results for t in r.tokens], [best], "executar", best.paraphrase, lang)
 
-        def reading(i):
-            r = u.Reading("+".join(c.state for c in i.cands), i.constraints, i.cost,
-                          [n for c in i.cands for n in c.notes], u.paraphrase(i.constraints, world),
-                          [n for c in i.cands for n in c.ambiguous], any(c.unknown_verb for c in i.cands),
-                          i.sentence.predicates[0].lemma)
-            return r
 
-        rs = [reading(i) for i in its[:10]]
-        tokens = best.analysis.tokens
-        if best.act == "assertion":
-            return u.Understanding(text, tokens, rs, "fato", langs.msg("not_understood", why="afirmação"), lang)
-        if rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] > 1.0:
-            # the verb means nothing known and the rest does not decide: ask what the verb does (it is then learned)
-            return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
-        if best.cost > u.LIMIT and not (rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] <= 1.0):
-            why = "; ".join(rs[0].assumptions)
-            return u.Understanding(text, tokens, rs, "nao_entendi", langs.msg("not_understood", why=why), lang)
-        if rs[0].unknown_verb:
-            single = all(c["kind"] in ("style", "field") for c in best.constraints)
-            second = next((i for i in its[1:] if i.constraints != best.constraints), None)
-            if single and (second is None or second.cost - best.cost >= RIVAL_MARGIN):
-                return u.Understanding(text, tokens, rs, "executar",
-                                       langs.msg("unknown_verb_guess", what=para, verb=rs[0].verb), lang)
-            return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
-        ask = next((c.ask_value for c in best.cands if c.ask_value), None)
-        if ask:
-            node, prop = ask
-            return u.Understanding(text, tokens, rs, "perguntar",
-                                   langs.msg("ask_amount", prop=u._label("propriedade", prop).lower(),
-                                             name=world.nodes[node]["name"] or node), lang)
-        amb = rs[0].ambiguous
-        if amb:
-            names = ", ".join(f"«{world.nodes[n]['name']}»" for n in amb[:6] if n in world.nodes)
-            return u.Understanding(text, tokens, rs, "perguntar", langs.msg("which", names=names), lang)
-        rivals = [i for i in its[1:] if i.cost - best.cost < RIVAL_MARGIN and
-                  _effect(i.constraints) != _effect(best.constraints)]
-        if rivals:
-            options = langs.msg("or").join(f"«{u.paraphrase(i.constraints, world)}»" for i in [best] + rivals[:2])
-            return u.Understanding(text, tokens, rs, "perguntar", langs.msg("did_you_mean", options=options), lang)
-        return u.Understanding(text, tokens, rs, "executar", para, lang)
+def _decide(text, its, world, lang):
+    """The decision for one sentence: execute, ask (a rival meaning, an ambiguous element, a missing amount, an
+    unknown verb), say it was not understood, or note it as information."""
+    u = _u()
+    if not its:
+        return u.Understanding(text, [], [], "nao_entendi", langs.msg("not_understood", why=""), lang)
+    best = its[0]
+    para = u.paraphrase(best.constraints, world)
+
+    def reading(i):
+        return u.Reading("+".join(c.state for c in i.cands) or "fato", i.constraints, i.cost,
+                         [n for c in i.cands for n in c.notes], u.paraphrase(i.constraints, world),
+                         [n for c in i.cands for n in c.ambiguous], any(c.unknown_verb for c in i.cands),
+                         i.sentence.predicates[0].lemma)
+
+    rs = [reading(i) for i in its[:10]]
+    tokens = best.analysis.tokens
+    if best.act == "assertion" and not best.cands:
+        return u.Understanding(text, tokens, rs, "fato", langs.msg("not_understood", why="afirmação"), lang)
+    if rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] > 1.0:
+        # the verb means nothing known and the rest does not decide: ask what the verb does (it is then learned)
+        return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
+    if best.cost > u.LIMIT and not (rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] <= 1.0):
+        why = "; ".join(rs[0].assumptions)
+        return u.Understanding(text, tokens, rs, "nao_entendi", langs.msg("not_understood", why=why), lang)
+    if rs[0].unknown_verb:
+        single = all(c["kind"] in ("style", "field") for c in best.constraints)
+        second = next((i for i in its[1:] if i.constraints != best.constraints), None)
+        if single and (second is None or second.cost - best.cost >= RIVAL_MARGIN):
+            return u.Understanding(text, tokens, rs, "executar",
+                                   langs.msg("unknown_verb_guess", what=para, verb=rs[0].verb), lang)
+        return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
+    ask = next((c.ask_value for c in best.cands if c.ask_value), None)
+    if ask:
+        node, prop = ask
+        name = (world.nodes.get(node) or {}).get("name") or node
+        return u.Understanding(text, tokens, rs, "perguntar",
+                               langs.msg("ask_amount", prop=u._label("propriedade", prop).lower(), name=name), lang)
+    amb = rs[0].ambiguous
+    if amb:
+        names = ", ".join(f"«{world.nodes[n]['name']}»" for n in amb[:6] if n in world.nodes)
+        return u.Understanding(text, tokens, rs, "perguntar", langs.msg("which", names=names), lang)
+    rivals = [i for i in its[1:] if i.cost - best.cost < RIVAL_MARGIN and
+              _effect(i.constraints) != _effect(best.constraints)]
+    if rivals:
+        options = langs.msg("or").join(f"«{u.paraphrase(i.constraints, world)}»" for i in [best] + rivals[:2])
+        return u.Understanding(text, tokens, rs, "perguntar", langs.msg("did_you_mean", options=options), lang)
+    return u.Understanding(text, tokens, rs, "executar", para, lang)
 
 
 def _effect(constraints: list) -> tuple:

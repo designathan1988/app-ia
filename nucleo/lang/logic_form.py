@@ -248,6 +248,17 @@ def build(tokens) -> Sentence:
             p.act = "assertion"
         out.append(p)
         out += p.conj
+        # clauses side by side ("me faz um favor, centraliza o parágrafo"; "o título tá pequeno, coloca 36px"): each
+        # one is said on its own
+        for c in kids.get(r.i, []) + kids.get(top.i, []):
+            if _base(c.deprel) == "parataxis" and c.upos in ("VERB", "AUX", "ADJ", "NOUN"):
+                q = predicate(c, kids, tokens, "request")
+                if q.act == "request" and _declarative(c, tokens, kids, q):
+                    q.act = "assertion"
+                if all(q.head is not x.head for x in out):
+                    out.append(q)
+                    out += q.conj
+    out.sort(key=lambda q: q.head.i)
     return Sentence(tokens, out)
 
 
