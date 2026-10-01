@@ -21,6 +21,7 @@ The output is the same goal constraints the planner already takes (``understand.
 from __future__ import annotations
 
 import itertools
+import pathlib
 from dataclasses import dataclass, field
 
 from . import alternatives, grounding, langs, lexicon
@@ -224,12 +225,18 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
             # state it can set
             from .values import reachable
 
-            options = [o for o in options if reachable(o[0]) or said is not None and said[0] == "atributo"]
+            if said is not None and said[0] == "atributo":
+                options = [o for o in options if _attribute_ok(o[0], ntype, o[1])]
+            else:
+                options = [o for o in options if reachable(o[0])]
             if not options:
                 continue
             best = min(c for _, _, c in options)
             chosen = [o for o in options if o[2] == best]
             prop, value, prior = chosen[0]
+            if pd is not None and pd.data[0] == "propriedade" and pd.data[1] == prop:
+                # the property was named: how likely it is for such an element only breaks ties
+                prior = min(prior, 0.5)
             used = set(v.words) | (set(pd.words) if pd is not None else set())  # (a label word is not a layer)
             bp, st, layer_words = _layer(p, [x for x in tokens if x.i not in used], world)
             ask = None
@@ -342,11 +349,13 @@ def _surface_labels(args, tokens, world) -> list:
     found = []
     for k in range(len(seq)):
         for e, n in lexicon.match(seq, {"propriedade"}, k):
-            if n < 2 or e.lemmas == (e.id,):
-                continue  # one word, or a CSS name: the tree's own grounding covers it
+            if e.lemmas == (e.id,) or n < 2 and own[k].upos != "VERB":
+                # (one word, or a CSS name: the tree's own grounding covers it - unless the parser took the word
+                # for a verb: a label that is an infinitive, "o flutuar", "o limpar flutuação")
+                continue
             span = own[k:k + n]
             ws = frozenset(t.i for t in span)
-            if sum(1 for t in span if t.head not in ws) < 2:
+            if n > 1 and sum(1 for t in span if t.head not in ws) < 2:
                 continue  # one word of the span dominates the rest: the tree kept the label as a phrase
             after = [m for m in _mentions(args) if m.head.i > span[-1].i and not ({t.i for t in m.words} & ws)]
             after.sort(key=lambda m: m.head.i)
@@ -361,18 +370,36 @@ def _surface_labels(args, tokens, world) -> list:
 
 
 def _label_spans(tokens) -> list:
-    """(property, token indices) of every multiword property label said as contiguous words."""
+    """(properties, token indices) of every property named exactly by contiguous words: a catalog label (of one or
+    more words) or a CSS identifier ("line-clamp"). A label inside a longer one ("fundo" in "cor de fundo") is
+    the longer one's. A word can be the exact label of several properties: any of them is that word's use."""
     arts = langs.profile()["articles"]
     own = sorted((t for t in tokens if t.upos != "PUNCT" and fold(t.form.lower()) not in arts), key=lambda t: t.i)
     seq = tuple(lexicon.lemma_of(t.form) for t in own)
-    out = []
+    found = []
     for k in range(len(seq)):
-        for e, n in lexicon.match(seq, {"propriedade"}, k):
-            # (a multiword label, or a CSS identifier said as such: "line-clamp", "user-select")
-            if n >= 2 and e.lemmas != (e.id,) or n == 1 and e.lemmas == (e.id,) and "-" in e.id:
-                out.append((e.id, frozenset(t.i for t in own[k:k + n])))
-                break
-    return out
+        from .values import index as value_index
+
+        # exact labels only (a typing slip is not an exact naming: "mundo" is not "fundo"); a one-word CSS name like
+        # "color" is said as a word; a word that is also a value ("esquerda": left, and text-align: left) is
+        # not only a property's name
+        hits = [(e, n) for e, n in lexicon.match(seq, {"propriedade"}, k)
+                if (e.lemmas != (e.id,) or "-" in e.id) and tuple(seq[k:k + n]) in (e.lemmas, tuple(sorted(e.lemmas)))
+                and not (n == 1 and value_index().get(fold(seq[k])))]
+        if not hits:
+            continue
+        n = max(n for _, n in hits)
+        ids = frozenset(e.id for e, m in hits if m == n)
+        found.append((ids, frozenset(t.i for t in own[k:k + n])))
+    return [(ids, ws) for ids, ws in found if not any(ws < other for _, other in found)]
+
+
+def _label_contains(prop: str, said_ids) -> bool:
+    """The property set has a label that contains one of the labels said ("tamanho da fonte" contains "fonte")."""
+    labels = [e.lemmas for e in lexicon.load() if e.kind == "propriedade" and e.id in said_ids and e.lemmas != (e.id,)]
+    own = [e.lemmas for e in lexicon.load() if e.kind == "propriedade" and e.id == prop]
+    return any(len(l) < len(o) and any(o[i:i + len(l)] == l for i in range(len(o) - len(l) + 1))
+               for l in labels for o in own)
 
 
 LABEL_SPLIT = 2.0  # using the words of a multiword label apart (a lexical unit read as separate words)
@@ -427,6 +454,31 @@ def _label_has(prop: str, word: str) -> bool:
     lem = lexicon.lemma_of(word)
     return any(e.id == prop and (lem in e.lemmas or fold(word) in e.lemmas) for e in lexicon.load()
                if e.kind == "propriedade")
+
+
+def _attribute_ok(attr: str, ntype: str, value) -> bool:
+    """An HTML attribute can be given to this element (the manifest's "elements") with this value (its type):
+    "cols" is a textarea's, and a number."""
+    import json
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    if "attrs" not in _ATTRS:
+        path = pathlib.Path(DEFAULT_BUILDER) / "manifest" / "elements.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        _ATTRS["attrs"] = {a["html"]: a for a in data.get("attributes") or [] if isinstance(a, dict) and a.get("html")}
+    a = _ATTRS["attrs"].get(attr)
+    if a is None:
+        return True
+    elems = a.get("elements")
+    if elems != "all" and isinstance(elems, list) and ntype not in elems:
+        return False
+    if a.get("valueType") in ("number", "integer"):
+        return _u()._value_kind(str(value)) == "number"
+    return True
+
+
+_ATTRS: dict = {}
 
 
 def _fits(prop: str, lit) -> bool:
@@ -709,7 +761,7 @@ def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
         targets += [(Arg("obl", c, x, []), d) for la, _ in lits for c, x in la.mention.attached
                     for d in gr.place(c, x, world) if d.data[0] == "dentro"]
         for (ta, t), (la, lit) in itertools.product(targets, lits):
-            if la is ta or t.kind == "place" and la.role == "obl":
+            if la is ta or t.kind == "place" and la.role == "obl" or t.words & lit.words:
                 continue
             node = t.data[0] if t.kind == "ref" else t.data[1][0]
             amb = list(t.data) if t.kind == "ref" and t.ambiguous else []
@@ -783,8 +835,10 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
                 cands.append(c)
     spans = _label_spans(tokens)
     for c in cands:
-        for pid, ws in spans:
-            if c.explained & ws and not any(k.get("property") == pid for k in c.constraints):
+        for ids, ws in spans:
+            props = [k.get("property") for k in c.constraints] + ([c.ask_value[1]] if c.ask_value else [])
+            fields = [k.get("field") for k in c.constraints if k.get("kind") == "field"]
+            if c.explained & ws and not fields and not any(q in ids or _label_contains(q, ids) for q in props if q):
                 c.cost += LABEL_SPLIT
                 c.notes.append("rótulo partido")
                 c.parts["rotulo_partido"] = LABEL_SPLIT

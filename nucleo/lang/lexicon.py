@@ -188,7 +188,7 @@ def _match(seq: tuple, kinds: frozenset, start: int, lang: str) -> tuple:
             # the same words in another order: a label is often written head-first ("Margin top") and said
             # modifier-first ("top margin")
             reordered.append((e, len(e.lemmas)))
-        elif all(_close(x, y) for x, y in zip(part, e.lemmas)):
+        elif e.lemmas != (e.id,) and all(_close(x, y) for x, y in zip(part, e.lemmas)):
             near.append((e, len(e.lemmas)))
     out = exact + [r for r in reordered if r[1] > max((x[1] for x in exact), default=0)] or near
     out.sort(key=lambda x: -x[1])
