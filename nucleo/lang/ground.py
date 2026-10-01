@@ -440,7 +440,9 @@ def values(m: Mention) -> list[Den]:
     for t in m.words:
         if is_literal(t.form) and t.i not in attached:
             out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
-    words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM") and not _function_word(t)]
+    # (a capitalised word inside the sentence is a name, whatever category the tagger gave it: "para Comprar")
+    words = [t for t in content if (t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM") or literal_value(t.form) in m.names)
+             and not _function_word(t)]
     named = [t for t in words if literal_value(t.form) in m.names]
     if not any(d.kind == "lit" for d in out):
         if named and len(named) == len(words):
@@ -479,6 +481,9 @@ def values(m: Mention) -> list[Den]:
         if is_literal(t.form):
             continue
         pairs = ix.get(fold(lexicon.lemma_of(t.form)), []) or ix.get(fold(t.form.lower()), [])
+        if not pairs and t.i == m.head.i and m.det in ("definite", "demonstrative") and any(
+                e.lemmas != (e.id,) for e, n in lexicon.match((lexicon.lemma_of(t.form),), {"propriedade"}) if n == 1):
+            continue  # "o fundo" names the property background; it is not (through the graph) the value bottom
         if pairs:
             out.append(Den("val", tuple(pairs), 0.0, frozenset({t.i})))
             continue
@@ -516,9 +521,11 @@ def measure(m: Mention, world) -> list[Den]:
 
 @lru_cache(maxsize=4096)
 def _headed_for(lemma: str, lang: str) -> tuple:
-    head_at = -1 if lang == "en" else 0  # the head of a label: "text colour" / "cor do texto"
+    # the head of a label: first in Portuguese ("cor do texto"); in the English catalog at either end ("text colour",
+    # "Padding top")
+    ends = (0,) if lang == "pt" else (0, -1)
     return tuple(sorted({e.id for e in lexicon.load() if e.kind == "propriedade" and len(e.lemmas) >= 2
-                         and e.lemmas[head_at] == lemma}))
+                         and any(e.lemmas[k] == lemma for k in ends)}))
 
 
 def _headed(word: str) -> tuple:
@@ -697,6 +704,10 @@ def _from_lexicon(lem: str, ev: Evidence) -> None:
             st = STATE_OF_FRAME.get(f["id"])
             if st:
                 ev.kinds[st] = 0.0
+    if "added" in ev.kinds and "style" not in ev.kinds:
+        # an insertion verb whose object is an amount of a property gives that property ("add a 10px margin",
+        # "acrescenta 8px de espaço"): a style, at the cost of the construction
+        ev.kinds["style"] = 1.0
     for cv in command_verbs.table().get(lem, []):
         if cv.command in FRAME_COMMANDS.values():
             continue  # the command that performs a frame's change ("Excluir"): that change is the state itself

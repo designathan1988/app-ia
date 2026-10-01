@@ -182,7 +182,7 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
             targets = [(pa, owner)]
         else:
             sides = langs.profile().get("sides", {})
-            sided_places = [(a, d) for a in args for d in a.of("place") if d.data[0] in sides]
+            sided_places = _sided(args, world)
             targets = [(a, d) for a, d in themes if a is not va] + [(a, d) for a, d in places if a is not va] + \
                 [(a, d) for a, d in sided_places if a is not va]
         for ta, t in targets:
@@ -210,14 +210,14 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                     options.append((prop, value, u._prior(prop, ntype)))
             elif v.kind in ("lit", "measure") and said is not None:
                 lit = v_lit if v.kind == "measure" else v.data
-                options += _literal_options(said, lit, ntype)
+                options += _literal_options(said, lit, ntype, sided=bool(_side_words(args, va, ta, world)))
             elif v.kind == "cmp":
                 options += _comparative_options(said, ntype)
             if ev.props and any(q in ev.props for q, _, _ in options):
                 # the verb's own meaning is about properties ("alinhar", "align": alignment): one of them, whatever
                 # the element ("align the image to the right": its alignment, though an image is no text)
                 options = [(q, val, min(c, 1.0)) for q, val, c in options if q in ev.props]
-            side_words = _side_words(args, va, ta)
+            side_words = _side_words(args, va, ta, world)
             if side_words and len({q for q, _, _ in options}) > 1:
                 # a side said ("em cima do botão", "on top"): the property of that side
                 sided = [o for o in options if _label_has(o[0], side_words[0])]
@@ -449,16 +449,23 @@ def _layer(p: lf.Predicate, tokens, world) -> tuple:
     return bp, st, ws
 
 
-def _side_words(args, va, ta):
+def _sided(args, world, va=None) -> list:
+    """Place phrases that say a side ("em cima do botão", "above the paragraph"): of the clause, or attached to one
+    of its phrases (a margin said with its place, "a 10px margin above the Intro paragraph")."""
+    sides = langs.profile().get("sides", {})
+    out = [(a, d) for a in args if a is not va for d in a.of("place") if d.data[0] in sides]
+    for a in args:
+        for c, x in (a.mention.attached if a.mention is not None else []):
+            out += [(Arg("obl", c, x, []), d) for d in gr.place(c, x, world) if d.data[0] in sides]
+    return out
+
+
+def _side_words(args, va, ta, world=None):
     """The side a place phrase says ("em cima do", "on top of" -> the profile's word for that side: "superior",
     "top"), and the tokens it explains; the anchor of that place is the element."""
     sides = langs.profile().get("sides", {})
-    for a in args:
-        if a is va:
-            continue
-        for d in a.of("place"):
-            if d.data[0] in sides:
-                return sides[d.data[0]], set(d.words) | _case_tokens(a.mention)
+    for a, d in _sided(args, world, va):
+        return sides[d.data[0]], set(d.words) | _case_tokens(a.mention)
     return None
 
 
@@ -502,7 +509,7 @@ def _fits(prop: str, lit) -> bool:
     return u._value_fits(prop, lit) or u._value_kind(lit) in literal_kinds(prop)
 
 
-def _literal_options(said, lit, ntype) -> list:
+def _literal_options(said, lit, ntype, sided: bool = False) -> list:
     """The properties a literal can be the value of, given the property said: the property itself if the value fits
     it; for a family ("cor", "length"), its properties; and the properties whose label contains the one said and
     whose type takes this kind of value ("fonte" with 32px: "tamanho da fonte")."""
@@ -512,6 +519,14 @@ def _literal_options(said, lit, ntype) -> list:
     builder = _builder_properties()
     kind, pid = said
     out = []
+    if kind == "propriedade" and pid not in builder and sided:
+        # a shorthand said by its CSS name with a side ("a margin above", "padding below"): the builder sets the
+        # longhand of that side ("margin-top"); with no side said, which one is not known (it is asked)
+        from .values import _w3c_properties
+
+        longhands = [q for q in (_w3c_properties().get(pid, {}).get("longhands") or []) if q in builder]
+        if longhands:
+            kind, pid = "lista", tuple(longhands)
     if kind == "lista":
         return [(q, lit, u._prior(q, ntype)) for q in pid if _fits(q, lit)]
     if kind == "familia":
@@ -768,8 +783,8 @@ def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
     u = _u()
     # (an unquoted literal with the form of a CSS value, "36px", "#f00", is a value by its form: as a text it costs)
     lits = [(a, d if not _css_form(d.data) else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes))
-            for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content")
-            and (a.role != "obl" or _value_case(a.case))]
+            for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content", "adv")
+            and (a.role not in ("obl", "adv") or a.case and _value_case(a.case))]
     # a field said with its owner ("o texto do botão", "the button text", "o nome da foto")
     for a in args:
         for f in a.of("field"):

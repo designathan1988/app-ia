@@ -17,7 +17,8 @@ from nucleo.builder.knowledge import load_domains
 from nucleo.builder.planner import Planner
 from nucleo.builder.scenarios import load_fixture, load_scenarios, start
 from nucleo.lang.syntax import MODELS
-from nucleo.lang.understand import World, understand
+from nucleo.lang.interpret import understand_request as understand  # the engine the application uses (C6)
+from nucleo.lang.understand import World
 
 pytestmark = pytest.mark.skipif(not (MODELS / "parser.json").exists(),
                                 reason="modelos sintáticos não treinados (experiments/x2_parser.py)")
