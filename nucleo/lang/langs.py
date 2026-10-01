@@ -27,6 +27,8 @@ PROFILES = {
         "whole": {"inteiro", "inteira", "inteiros", "inteiras", "todo", "toda"},
         # the addressee: a clause whose subject is the listener is a directive, never information
         "addressee": {"você", "voce", "vocês", "voces", "tu", "senhor", "senhora"},
+        "numbers": {"dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
+                    "nove": 9, "dez": 10},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
         # degree: comparison words and the verbs of changing an amount (closed class)
@@ -59,6 +61,8 @@ PROFILES = {
         "universal": {"all", "every", "each"},
         "whole": {"whole", "entire", "full"},
         "addressee": {"you"},
+        "numbers": {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                    "ten": 10},
         "sides": {"antes": "top", "depois": "bottom"},
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
         "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},
@@ -255,7 +259,8 @@ MESSAGES = {
         "which": "Qual deles: {names}?", "did_you_mean": "Você quer dizer {options}?", "or": " ou ",
         "confirm": "Não tenho certeza{why}: entendi «{what}». É isso? (sim/não)",
         "unknown_verb_guess": "{what} (não conheço «{verb}»; entendi pelo resto da frase)",
-        "nothing_done": "Certo, nada foi feito.", "noted": "Anotado.", "welcome": "Por nada.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
+        "nothing_done": "Certo, nada foi feito.", "noted": "Anotado.", "welcome": "Por nada.",
+        "not_doing": "Certo, não faço isso.", "question_not_request": "Isso é uma pergunta, não um pedido de mudança.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
         "learned": "Aprendi: «{verb}» = «{body}».", "same_again": "O mesmo: {what}",
         "part_failed": "Nada foi feito: na parte «{part}»: {why}",
         "ask_amount": "{prop} de «{name}» não tem valor definido para eu aumentar ou diminuir: qual valor? "
@@ -272,7 +277,8 @@ MESSAGES = {
         "which": "Which one: {names}?", "did_you_mean": "Do you mean {options}?", "or": " or ",
         "confirm": "I am not sure{why}: I understood «{what}». Is that right? (yes/no)",
         "unknown_verb_guess": "{what} (I did not know «{verb}»; I understood it from the rest of the sentence)",
-        "nothing_done": "OK, nothing was done.", "noted": "Noted.", "welcome": "You are welcome.", "no_plan": "I understood «{what}», but found no commands that do it.",
+        "nothing_done": "OK, nothing was done.", "noted": "Noted.", "welcome": "You are welcome.",
+        "not_doing": "OK, I will not do that.", "question_not_request": "That is a question, not a change to make.", "no_plan": "I understood «{what}», but found no commands that do it.",
         "learned": "Learned: «{verb}» = «{body}».", "same_again": "The same: {what}",
         "part_failed": "Nothing was done: in the part «{part}»: {why}",
         "ask_amount": "The {prop} of «{name}» has no value set for me to make bigger or smaller: which value? "

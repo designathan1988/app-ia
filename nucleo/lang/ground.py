@@ -126,7 +126,11 @@ def _default_name(nid: str, world) -> bool:
 
     for lang in ("pt", "en"):
         labels |= {fold(e.label.lower()) for e in _load(lang) if e.kind == "tipo" and e.id == node.get("type")}
-    return bool(name) and fold(name.lower()) in labels
+    if not (bool(name) and fold(name.lower()) in labels):
+        return False
+    # (it still singles the element out when no other element of its type has a default name too)
+    others = [o for o, v in world.nodes.items() if o != nid and v.get("type") == node.get("type")]
+    return any(fold(re.sub(r"\s+\d+$", "", world.nodes[o].get("name") or "").lower()) in labels for o in others)
 
 
 def _name_key(text: str) -> tuple:
@@ -219,7 +223,27 @@ def _descends(node, anchor, world) -> bool:
 
 
 def references(m: Mention, world, restrict: bool = True) -> list[Den]:
-    """What page nodes a mention refers to."""
+    """What page nodes a mention refers to; a coordination refers to all its terms ("o cabeçalho e o rodapé",
+    "the header and the footer": the change is distributed over both)."""
+    own = _references_one(m, world, restrict)
+    if not m.conj or not own:
+        return own
+    first = own[0]
+    nodes, cost, words, amb = list(first.data), first.cost, set(first.words), first.ambiguous
+    for c in m.conj:
+        sub = references(c, world, restrict)
+        if not sub:
+            return own  # a term that refers to nothing: the coordination is not of elements
+        nodes += [n for n in sub[0].data if n not in nodes]
+        cost += sub[0].cost
+        words |= set(sub[0].words)
+        amb = amb or sub[0].ambiguous
+    words |= {t.i for t in m.words if t.upos == "CCONJ"}
+    return [Den("ref", tuple(nodes), cost, frozenset(words), first.notes, amb)] + own[1:]
+
+
+def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
+    """What page nodes a mention (its head phrase, without its coordinated terms) refers to."""
     u = _u()
     COST = u.COST
     prof = langs.profile()
@@ -244,12 +268,16 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
     cross_cost = 0.0
     if phrase:
         names = [nid for nid, _ in phrase]
-    elif not names:
-        cross = _cross_named(m, world)
+    types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
+    if not phrase and not names:
+        # a name said in the other language; when the word is also a type word, the element must be of that type
+        # ("header" names no footer, whatever concept the two words share)
+        present = {v["type"] for v in world.nodes.values()}
+        type_ids = {ty for ty, _, _ in types} & present  # (a type the page has: its elements are what the word means)
+        cross = [x for x in _cross_named(m, world) if not type_ids or world.nodes[x[0]]["type"] in type_ids]
         if cross:
             names = [nid for nid, _, _ in cross]
             cross_cost = min(c for _, _, c in cross)
-    types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
     cands: list = []
     cost = 0.0
     notes: tuple = ()
@@ -563,9 +591,18 @@ def kinds(m: Mention) -> list[Den]:
         return []
     out = []
     prof = langs.profile()
+    numbers = langs.profile().get("numbers", {})
+    count, count_ws = 1, set()
+    for t in m.words:
+        if t.head == m.head.i and t.deprel.split(":")[0] == "nummod":
+            low = fold(t.form.lower())
+            if low.isdigit():
+                count, count_ws = int(low), {t.i}
+            elif low in numbers:
+                count, count_ws = numbers[low], {t.i}
     for ty, c, ws in _types(_chain(m), m.head):
         newness = {t.i for t in m.words if fold(t.form.lower()) in prof["new"]}
-        out.append(Den("kind", ty, c, ws | newness))
+        out.append(Den("kind", ty, c, ws | newness | count_ws, (f"n={count}",) if count > 1 else ()))
     return out
 
 
@@ -757,7 +794,7 @@ def verb_evidence(p: Predicate, tokens=None) -> Evidence:
         # a copula, or a volitive with no verbal complement ("quero o título azul", "I'd like it in bold"): the
         # state is what the arguments say
         ev.light = True
-        ev.kinds = {"style": 0.0, "field:text": 0.5, "field:name": 0.5, "added": 1.0}
+        ev.kinds = {"style": 0.0, "added": 1.0}
         return ev
     for lem, parts in _verb_candidates(p, tokens):
         _from_lexicon(lem, ev)

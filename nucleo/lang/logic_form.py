@@ -105,6 +105,9 @@ def mention(tok, kids) -> Mention:
     for c in kids.get(tok.i, []):
         rel = _base(c.deprel)
         low = fold(c.form.lower())
+        if c.i > tok.i and c.upos in ("NOUN", "PROPN", "PRON") and any(
+                _base(g.deprel) == "cc" and g.i < c.i for g in kids.get(c.i, [])):
+            rel = "conj"  # (a dependent with its own coordinating conjunction is a conjunct, whatever its label)
         if rel == "det" or rel == "nummod" and c.i < tok.i:
             if low in prof["universal"]:
                 m.det = "universal"
@@ -161,7 +164,13 @@ def predicate(tok, kids, tokens, act: str = "request") -> Predicate:
     if cop is not None:
         # a copular clause: the state is the head; the copula carries the verb
         p = Predicate(tok, tok.lemma, kind="state", act=act)
-        p.roles.append(("attr", "", _value_or_mention(tok, kids)))
+        # the attribute is the predicative word with its own modifiers, not the clause around it (its subject,
+        # copula, auxiliaries, the phrases of the clause)
+        clause = {"nsubj", "csubj", "cop", "aux", "mark", "punct", "obl", "advcl", "advmod", "conj", "cc",
+                  "parataxis", "expl", "discourse", "vocative", "xcomp", "ccomp", "obj", "iobj"}
+        own = dict(kids)
+        own[tok.i] = [c for c in kids.get(tok.i, []) if _base(c.deprel) not in clause]
+        p.roles.append(("attr", "", _value_or_mention(tok, own)))
     else:
         p = Predicate(tok, tok.lemma, act=act)
     for c in deps:

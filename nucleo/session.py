@@ -153,9 +153,9 @@ class Session:
     def _ask_one(self, text: str) -> Answer:
         world = self._world()
         u = understand(text, world)
-        if u.decision in ("aprendido", "fato", "cortesia"):
-            # learned, noted as information, or only talk: answered, nothing to change
-            msg = u.message if u.decision == "aprendido" else langs.msg(
+        if u.decision in ("aprendido", "fato", "cortesia", "negado"):
+            # learned, noted as information, only talk, or a prohibition: answered, nothing to change
+            msg = u.message if u.decision in ("aprendido", "negado") else langs.msg(
                 "noted" if u.decision == "fato" else "welcome", langs.detect(text))
             a = Answer(text, u.decision, msg, [], True)
             self.history.append(a)

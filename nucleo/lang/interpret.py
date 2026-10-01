@@ -82,8 +82,12 @@ def _themes(p: lf.Predicate, args: list[Arg], ctx: "Context | None" = None) -> l
     """The element(s) the predicate is about: the object of an event, else its subject (a copular, obligation or
     passive clause: "o botão tem que ficar verde"); with none said, the element the discourse made salient."""
     out = _said_themes(p, args)
-    if not out and ctx is not None and ctx.salient and not any(a.role in ("obj", "subj", "iobj") and a.of("kind")
-                                                               for a in args):
+    # (the element the discourse made salient stands for an element the clause does not say: never for one it says
+    # but that was not found, "duplicate the card" with no card is not the last element)
+    said = any(a.role in ("obj", "subj", "iobj") and a.mention is not None and a.mention.det != "pronoun"
+               and not is_literal(a.mention.head.form) and not a.of("val", "lit", "measure", "cmp", "prop", "field")
+               for a in args)  # (a value said as the object, "coloca 36px", names no element)
+    if not out and ctx is not None and ctx.salient and not said:
         out = [(Arg("contexto", "", None, []), gr.Den("ref", tuple(ctx.salient), CONTEXT_COST, frozenset(),
                                                        ("pelo contexto",)))]
     return out
@@ -286,6 +290,8 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                        "verbo": ev.kinds.get("style", 9.0), "propriedade_dita": pd.cost if pd is not None else 0.0,
                        "varias": cost - (v.cost + t_cost + prior + ev.kinds.get("style", 9.0) +
                                          (pd.cost if pd is not None else 0.0))}
+            c.sources = {"valor": (v.kind, sorted(v.words)), "propriedade": (pd.data[:2] if pd is not None else None),
+                         "alvo": sorted(t.words)}  # (which words gave what: to explain the reading)
             out.append(c)
     return out
 
@@ -624,6 +630,8 @@ def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
                 if pd is not None:
                     rel, anchors = pd.data
                     parent, index = u._placement(rel, anchors[0], world)
+                    if parent is not None and not _takes_children(world.nodes.get(parent, {}).get("type")):
+                        continue  # (an image, a paragraph of text: nothing goes inside them)
                     cost += pd.cost
                     explained |= set(pd.words) | _case_tokens(pa.mention)
                     amb = list(anchors) if pd.ambiguous else []
@@ -634,8 +642,9 @@ def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
                     cost += u.COST["definido_com_referente"]
                 extras, extra_words = _new_element_fields(a.mention, world)
                 explained |= extra_words
+                count = next((int(n.split("=")[1]) for n in k.notes if n.startswith("n=")), 1)
                 out.append(Cand("added", [{"kind": "added", "type": k.data, "parent": parent, "index": index,
-                                           **extras}],
+                                           **extras} for _ in range(count)],
                                 cost, explained, notes, amb))
     for a, t in _themes(p, args, ctx):
         # removed
@@ -690,6 +699,23 @@ def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
             nested = {x.i for _, b in a.attached for x in b.words}
             words |= {t.i for t in a.words if t.i not in nested} | set(lit.words)
     return extras, words
+
+
+_CONTENT: dict = {}
+
+
+def _takes_children(etype) -> bool:
+    """Whether elements of this type contain other elements (the manifest's content model)."""
+    import json
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    if not _CONTENT:
+        data = json.loads((pathlib.Path(DEFAULT_BUILDER) / "manifest" / "elements.json").read_text(encoding="utf-8"))
+        _CONTENT.update({e["id"]: e.get("content") for e in data["elements"]})
+    if etype is None or etype not in _CONTENT or str(etype).startswith("$"):
+        return True
+    return _CONTENT[etype] == "children"
 
 
 def _value_removal(p, args, ev, world) -> list[Cand]:
@@ -1044,6 +1070,22 @@ def _coordinated(sentence: str) -> list[str]:
     return out
 
 
+def _wh_question(sentence: str, text: str, lang: str) -> bool:
+    """A sentence asked with an interrogative word ("qual", "o que", "what", "where", "how many"), marked as a
+    question: it asks for information. (A polite request in question form, "você pode...?", has none.)"""
+    from .questions import INTERROGATIVES
+    from .tokenize import tokenize
+
+    k = text.find(sentence)
+    end = text[k + len(sentence):k + len(sentence) + 2] if k >= 0 else ""
+    if "?" not in end and not sentence.rstrip().endswith("?"):
+        return False
+    words = [w.lower() for w in tokenize(sentence)]
+    joined = " " + " ".join(words) + " "
+    wh = INTERROGATIVES.get(lang, {})
+    return any(f" {w} " in joined for kind in ("what", "count", "where", "why") for w in wh.get(kind, ()))
+
+
 def u_limit() -> float:
     return _u().LIMIT
 
@@ -1080,6 +1122,11 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         work = _world_with(world, Context())
         results = []
         for sent in sentences:
+            if _wh_question(sent, text, lang):
+                # "qual é a cor do botão?", "what color is the button?": information asked, nothing to change
+                results.append(u.Understanding(sent, [], [], "pergunta", langs.msg("question_not_request", lang),
+                                               lang))
+                continue
             # (a sentence that is only talk, "Valeu!", "Thanks!", is a reading of its own: nothing to do)
             its = interpretations(sent, work, ctx, courtesy=len(sentences) > 1)
             # other segmentations of the sentence into clauses, each read on its own at the cost of the split: at its
@@ -1155,6 +1202,9 @@ def _decide(text, its, world, lang):
         return u.Understanding(text, tokens, rs, "fato", langs.msg("not_understood", why="afirmação"), lang)
     if best.act == "courtesy":
         return u.Understanding(text, tokens, rs, "cortesia", "", lang)
+    if any(p.negated for p in best.sentence.predicates if p.act != "assertion"):
+        # "não apague o título", "don't delete the heading": a prohibition; nothing is done
+        return u.Understanding(text, tokens, rs, "negado", langs.msg("not_doing", lang), lang)
     if rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] > 1.0:
         # the verb means nothing known and the rest does not decide: ask what the verb does (it is then learned)
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
