@@ -162,6 +162,13 @@ def _close(a: str, b: str) -> bool:
 def match(seq: tuple[str, ...], kinds: set[str], start: int = 0) -> list[tuple[Entry, int]]:
     """Entries of the given kinds whose lemma sequence occurs in `seq` at `start`, longest first: (entry, length).
     Exact matches first; a match with typing slips (see ``_close``) only when there is no exact one."""
+    from . import langs
+
+    return list(_match(tuple(seq), frozenset(kinds), start, langs.current()))
+
+
+@lru_cache(maxsize=200_000)
+def _match(seq: tuple, kinds: frozenset, start: int, lang: str) -> tuple:
     exact, reordered, near = [], [], []
     for e in load():
         if e.kind not in kinds or not e.lemmas:
@@ -185,7 +192,12 @@ def match(seq: tuple[str, ...], kinds: set[str], start: int = 0) -> list[tuple[E
             near.append((e, len(e.lemmas)))
     out = exact + [r for r in reordered if r[1] > max((x[1] for x in exact), default=0)] or near
     out.sort(key=lambda x: -x[1])
-    return out
+    return tuple(out)
 
 
-load.cache_clear = _load.cache_clear  # learned vocabulary clears it
+def _clear() -> None:
+    _load.cache_clear()
+    _match.cache_clear()
+
+
+load.cache_clear = _clear  # learned vocabulary clears it

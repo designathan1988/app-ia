@@ -680,7 +680,12 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
     is an empty reading (used for the parts of a sentence split at its commas)."""
     ctx = ctx or Context()
     out = []
+    best = None
     for a in alternatives.analyses(text):
+        # branch and bound: a reading never costs less than its analysis; once the analyses cost more than the best
+        # reading plus the rival margin, none of them can win or rival it (the result is the same as reading all)
+        if best is not None and a.cost > best + RIVAL_MARGIN:
+            break
         s = lf.build(a.tokens)
         if not s.predicates:
             continue
@@ -709,6 +714,7 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
             local = _after([rs[0]], local, w)
             w = _world_with(w, local)
         if ok and (chosen or facts):
+            best = total if best is None else min(best, total)
             out.append(Interpretation(total, cons, chosen, a, s,
                                       "assertion" if facts and not chosen else s.predicates[0].act, local, facts))
         elif ok and courtesy:

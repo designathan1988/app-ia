@@ -219,8 +219,7 @@ def run_new(verbose: bool = False) -> dict:
             outcome = "perguntou"
         counts[outcome] += 1
         if verbose and outcome != "certo":
-            print(f"[{outcome}] {text}
-    -> {u.decision}: {u.message[:160]}")
+            print(f"[{outcome}] {text}\n    -> {u.decision}: {u.message[:160]}")
     return counts
 
 

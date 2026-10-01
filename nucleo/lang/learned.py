@@ -25,10 +25,17 @@ from . import lexicon
 STORE = pathlib.Path(__file__).resolve().parents[2] / "data" / "vocabulario.json"
 
 
+_CACHE: dict = {}
+
+
 def _load() -> dict:
-    if STORE.exists():
-        return json.loads(STORE.read_text(encoding="utf-8"))
-    return {"verbos": {}, "expressoes": {}, "estruturas": {}}
+    """The learned vocabulary, read again only when the file changed (it is read on every word looked up)."""
+    if not STORE.exists():
+        return {"verbos": {}, "expressoes": {}, "estruturas": {}}
+    stamp = (str(STORE), STORE.stat().st_mtime_ns)
+    if _CACHE.get("stamp") != stamp:
+        _CACHE["stamp"], _CACHE["data"] = stamp, json.loads(STORE.read_text(encoding="utf-8"))
+    return _CACHE["data"]
 
 
 def _save(d: dict) -> None:
