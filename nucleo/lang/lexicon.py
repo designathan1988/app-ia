@@ -25,11 +25,21 @@ from .morph import analyses
 STOP = {"o", "a", "os", "as", "um", "uma", "uns", "umas"}
 
 
+def stop() -> set:
+    """The articles of the current language (not content)."""
+    from . import langs
+
+    return langs.profile()["articles"]
+
+
 def lemma_of(word: str) -> str:
     """Nouns and adjectives to their lemma (singular, masculine for adjectives); other words lowercased. The result
     is folded (no accents), so "título", "titulo" and "TÍTULO" are the same word to every matcher."""
+    from . import langs
     from .values import fold
 
+    if langs.current() == "en":
+        return fold(langs.english_lemma(word))
     w = word.lower()
     cands = [(lem, tags) for lem, tags in analyses(w) if tags.startswith("N+") or tags.startswith("A+")]
     # prefer a plain analysis (not a diminutive/augmentative of another word: "linha" is not "lia" + -inha)
@@ -44,7 +54,7 @@ def lemma_seq(text: str) -> tuple[str, ...]:
     words = []
     for w in re.findall(r"[\wÀ-ÿ-]+", text.lower()):
         words += list(table.get(w, (w,)))  # "do" -> "de o", as the parser sees it
-    return tuple(lemma_of(w) for w in words if w not in STOP)  # lemma_of folds accents
+    return tuple(lemma_of(w) for w in words if w not in stop())  # lemma_of folds accents
 
 
 @dataclass(frozen=True)
@@ -55,10 +65,20 @@ class Entry:
     lemmas: tuple[str, ...]
 
 
-@lru_cache(maxsize=1)
 def load(root: str | None = None) -> list[Entry]:
+    """The lexicon of the current language (its catalog of the builder's labels)."""
+    from . import langs
+
+    with langs.use(langs.current()):
+        return _load(langs.current(), root)
+
+
+@lru_cache(maxsize=4)
+def _load(lang: str, root: str | None = None) -> list[Entry]:
+    from . import langs
+
     base = pathlib.Path(root or DEFAULT_BUILDER)
-    cat = json.loads((base / "src" / "i18n" / "locales" / "pt-BR.json").read_text(encoding="utf-8"))
+    cat = json.loads((base / "src" / "i18n" / "locales" / langs.profile(lang)["catalog"]).read_text(encoding="utf-8"))
 
     def flat(d, p=""):
         for k, v in d.items():
@@ -156,3 +176,6 @@ def match(seq: tuple[str, ...], kinds: set[str], start: int = 0) -> list[tuple[E
     out = exact or near
     out.sort(key=lambda x: -x[1])
     return out
+
+
+load.cache_clear = _load.cache_clear  # learned vocabulary clears it

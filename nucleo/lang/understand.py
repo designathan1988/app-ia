@@ -29,23 +29,60 @@ from __future__ import annotations
 import json
 import re
 import pathlib
+from types import SimpleNamespace
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from . import command_verbs, learned, lexicon
+from . import command_verbs, langs, learned, lexicon
 from . import values as values_mod
 from .values import fold
 from .values import index as value_index
-from .morph import lemmas as morph_lemmas
+from .morph import lemmas as _pt_lemmas
+
+
+def morph_lemmas(form: str, category: str | None = None) -> list[str]:
+    """Lemmas of a form: MorphoBr for Portuguese; the English treebank's lemmas (and the wordnet) for English."""
+    if langs.current() == "en":
+        return [langs.english_lemma(form, "VERB" if category == "V" else None)]
+    return _pt_lemmas(form, category)
 from .syntax import load_models
 from .tokenize import is_literal, literal_value, tokenize
 
-FRAMES = json.loads((pathlib.Path(__file__).with_name("frames.json")).read_text(encoding="utf-8"))
-MODALS = {"poder", "querer", "gostar", "precisar", "conseguir", "dever", "ir", "favor", "ter"}
+class _Frames(dict):
+    """frames.json, whose function-word parts (places, value markers, field names) come from the current language's
+    profile when it has them (``langs``)."""
+
+    def __getitem__(self, key):
+        prof = langs.profile()
+        if langs.current() != "pt" and key in ("locais", "valor_casos", "campos") and key in prof:
+            return prof[key]
+        return dict.__getitem__(self, key)
+
+
+class _LangSet:
+    """A closed class of words (modals, articles, pronouns...) of the current language."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def _set(self) -> set:
+        return langs.profile()[self.key]
+
+    def __contains__(self, x) -> bool:
+        return x in self._set()
+
+    def __iter__(self):
+        return iter(self._set())
+
+    def __or__(self, other):
+        return set(self._set()) | set(other)
+
+
+FRAMES = _Frames(json.loads((pathlib.Path(__file__).with_name("frames.json")).read_text(encoding="utf-8")))
+MODALS = _LangSet("modals")
 # verbs that link a subject to a state ("o título tem que ficar vermelho"): the request is that state
-COPULAS = {"ficar", "estar", "ser", "permanecer", "tornar"}
-PRONOUNS = {"isso", "isto", "aquilo", "ele", "ela", "este", "esta", "esse", "essa", "selecionado", "selecionada",
-            "selecao"}
+COPULAS = _LangSet("copulas")
+PRONOUNS = _LangSet("pronouns")
 COST = {"verbo_fora_do_quadro": 4.0, "referente_ambiguo": 2.5, "referente_por_tipo": 0.5,
         "referente_pela_selecao": 0.3, "referente_nao_resolvido": 5.0, "valor_ausente": 5.0,
         "palavra_sem_explicacao": 1.0, "tipo_diferente_do_nome": 2.0, "local_ausente": 0.5,
@@ -87,15 +124,20 @@ class Understanding:
     readings: list
     decision: str
     message: str = ""
+    lang: str = "pt"
 
     @property
     def best(self) -> Reading | None:
         return self.readings[0] if self.readings else None
 
 
-@lru_cache(maxsize=1)
 def _models():
-    return load_models()
+    return _models_for(langs.current())
+
+
+@lru_cache(maxsize=4)
+def _models_for(lang: str):
+    return load_models(lang)
 
 
 def analyse(text: str) -> list[Token]:
@@ -134,9 +176,10 @@ def _subtree(tokens: list[Token], root: int) -> list[Token]:
 def _in_frame(lemma: str, frame: dict | None = None) -> bool:
     """Whether a verb belongs to a frame's class (or to any): listed in frames.json, or induced from use."""
     induced = learned.classes().get(lemma)
+    lang = langs.current()
     if frame is not None:
-        return lemma in frame["verbos"] or induced == frame["id"]
-    return induced is not None or any(lemma in f["verbos"] for f in FRAMES["quadros"])
+        return lemma in langs.frame_verbs(frame["id"], lang) or induced == frame["id"]
+    return induced is not None or any(lemma in langs.frame_verbs(f["id"], lang) for f in FRAMES["quadros"])
 
 
 def _known_verb(lemma: str) -> bool:
@@ -247,7 +290,7 @@ def _multiword_verb(tokens: list[Token], pred: Token) -> None:
     if k is None or k + 1 >= len(tokens) or tokens[k + 1].upos not in ("ADV", "ADP", "PART"):
         return
     pair = f"{pred.lemma} {tokens[k + 1].form.lower()}"
-    if concepts.concepts_of(pair, "pt", "v"):
+    if concepts.concepts_of(pair, langs.current(), "v"):
         pred.lemma = pair
         tokens[k + 1].particle = True
 
@@ -256,7 +299,7 @@ def _graph_verb(form: str) -> str | None:
     from . import concepts
 
     for inf in morph_lemmas(form, "V") + _regular_infinitives(form):
-        if concepts.concepts_of(inf, "pt", "v"):
+        if concepts.concepts_of(inf, langs.current(), "v"):
             return inf
     return None
 
@@ -266,9 +309,9 @@ def _politeness(tokens: list[Token], k: int) -> bool:
     return tokens[k].form.lower() == "por" and k + 1 < len(tokens) and tokens[k + 1].form.lower() == "favor"
 
 
-ARTICLE_FORMS = {"a", "o", "as", "os"}
-DEFINITE = {"o", "a", "os", "as", "este", "esta", "esse", "essa", "aquele", "aquela"}
-INDEFINITE = {"um", "uma", "uns", "umas"}
+ARTICLE_FORMS = _LangSet("article_forms")
+DEFINITE = _LangSet("definite")
+INDEFINITE = _LangSet("indefinite")
 
 
 @dataclass
@@ -283,7 +326,7 @@ class Piece:
         # tagger, an adjective in the label "Mudança prevista")
         # articles are not content, whatever tag the tagger gave them ("o" tagged as a pronoun)
         return tuple(lexicon.lemma_of(t.form) for t in self.words
-                     if not is_literal(t.form) and t.form.lower() not in lexicon.STOP)
+                     if not is_literal(t.form) and t.form.lower() not in lexicon.stop())
 
 
 def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
@@ -391,6 +434,17 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
                 return [], COST["referente_nao_resolvido"], [f"nenhum elemento se chama {literal_value(t.form)}"], 1
     type_hits = lexicon.match(seq, {"tipo"})
     typ = type_hits[0][0].id if type_hits else None
+    type_cost = 0.0
+    if typ is None and seq and skip < len(piece.words):
+        # a word the catalog does not use for a type ("title" for Heading, "foto" for Image): its meaning in the
+        # concept graph
+        from . import grounding
+
+        hit = next((m for m in grounding.meanings(piece.words[skip].form, "N")
+                    if m.kind == "tipo" and m.cost <= 1.5), None)
+        if hit is not None:
+            typ, type_cost = hit.target, hit.cost
+            type_hits = [(SimpleNamespace(id=hit.target, lemmas=(seq[0],)), 1)]
     # a node named like its type ("Parágrafo") is named by the very word that gave the type: counted once
     named_by_type = bool(names and type_hits) and all(
         lexicon.lemma_of(world.nodes[n]["name"] or "") in type_hits[0][0].lemmas for n in names)
@@ -408,7 +462,7 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
     if typ:
         of_type = [n for n, v in world.nodes.items() if v["type"] == typ]
         if len(of_type) == 1:
-            return of_type, COST["referente_por_tipo"], [], explained
+            return of_type, COST["referente_por_tipo"] + type_cost, [], explained
         sel = [n for n in of_type if n in world.selection]
         if len(sel) == 1:
             return sel, COST["referente_por_tipo"], ["o selecionado entre vários"], explained
@@ -558,10 +612,14 @@ def _value(pieces: list[Piece], used: set, prop: str | None = None, bare_ok: boo
     return None
 
 
-@lru_cache(maxsize=1)
 def _locution_heads() -> set:
+    return _locution_heads_for(langs.current())
+
+
+@lru_cache(maxsize=4)
+def _locution_heads_for(lang: str) -> set:
     """The non-preposition words of the place phrases in frames.json ("depois", "início", "dentro", ...)."""
-    preps = {"em", "de", "para", "a", "o"}
+    preps = {"em", "de", "para", "a", "o", "in", "of", "to", "at", "the", "a"}
     return {w for phrases in FRAMES["locais"].values() for ph in phrases for w in lexicon.lemma_seq(ph)
             if w not in preps}
 
@@ -824,7 +882,7 @@ def _unexplained(pieces: list[Piece], used: set, partial: dict) -> float:
         start = partial.get(k, len(lem)) if k in used else 0
         rest = lem[start:]
         common = [not (t.i > 1 and t.form[:1].isupper()) for t in p.words
-                  if not is_literal(t.form) and t.form.lower() not in lexicon.STOP][start:]
+                  if not is_literal(t.form) and t.form.lower() not in lexicon.stop()][start:]
         if k not in used and not lem and p.words:
             cost += COST["palavra_sem_explicacao"]
         for i in range(len(rest)):
@@ -870,7 +928,7 @@ def _common_lemmas(piece: Piece) -> tuple:
     """The lemmas of the piece's common words: a capitalized word inside the sentence is part of a name ("Café
     Serra"), never the name of a CSS value."""
     return tuple(lexicon.lemma_of(t.form) for t in piece.words
-                 if not is_literal(t.form) and t.form.lower() not in lexicon.STOP
+                 if not is_literal(t.form) and t.form.lower() not in lexicon.stop()
                  and not (t.i > 1 and t.form[:1].isupper()))
 
 
@@ -1083,7 +1141,7 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                 parent, index = _placement(target[0], target[1], world, moving=node)
                 constraints.append({"kind": "moved", "id": node, "parent": parent, "index": index})
             elif f["resultado"] == "field:name":
-                v = _value(pieces, used, cases=f.get("valor_casos"))
+                v = _value(pieces, used, cases=f.get("valor_casos") if langs.current() == "pt" else None)
                 cost += _literal_cost(pieces, v)
                 if v is None:
                     cost += COST["valor_ausente"]
@@ -1141,11 +1199,11 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
                     notes.append("não sei de qual elemento")
                     continue
             v = _value(pieces, used, entity.id if entity is not None and entity.kind == "propriedade" else None,
-                       bare_ok=p.case == ("em",), cases=f.get("valor_casos"))
+                       bare_ok=p.case == ("em",), cases=f.get("valor_casos") if langs.current() == "pt" else None)
             if v is None and owner_at is not None and entity is not None and entity.kind == "propriedade":
                 # the value left at the end of the owner's phrase: "o fundo da seção azul"
                 j, n = owner_at
-                content = [t for t in pieces[j].words if not is_literal(t.form) and t.form.lower() not in lexicon.STOP]
+                content = [t for t in pieces[j].words if not is_literal(t.form) and t.form.lower() not in lexicon.stop()]
                 tail = " ".join(t.form for t in content[n:])
                 if tail and values_mod.translate(tail, entity.id):
                     v = (tail, j)
@@ -1237,7 +1295,7 @@ def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
         amb = ref if len(ref) > 1 else []
         # the value is its own phrase ("à direita"), or the rest of the naming phrase when no preposition separated
         # them ("o titulo a direita", "o conteúdo do título Title centralizado")
-        content = [t for t in pieces[rp].words if not is_literal(t.form) and t.form.lower() not in lexicon.STOP]
+        content = [t for t in pieces[rp].words if not is_literal(t.form) and t.form.lower() not in lexicon.stop()]
         tail = Piece((), content[ex:]) if len(content) > ex else None
         options = [(j, q) for j, q in enumerate(pieces) if j not in (k, rp)] + ([(rp, tail)] if tail else [])
         for j, q in options:
@@ -1534,7 +1592,15 @@ def _politeness_words(words: list[str], k: int) -> bool:
     return words[k].lower() == "por" and k + 1 < len(words) and words[k + 1].lower() == "favor"
 
 
-def understand(text: str, world: World, by: str = "usuario") -> Understanding:
+def understand(text: str, world: World, by: str = "usuario", lang: str | None = None) -> Understanding:
+    """The request's language is detected (or given), and the whole pipeline runs in it."""
+    with langs.use(lang or langs.detect(text)):
+        u = _understand(text, world, by)
+    u.lang = lang or langs.detect(text)
+    return u
+
+
+def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
     tokens = analyse(text)
     taught = _definition(tokens, text, world, by)
     if taught is not None:
@@ -1551,7 +1617,7 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
         # a taught verb: its definition, applied to what this sentence says after the verb
         rest = " ".join(t.form for t in tokens if t.i > pred.i and t.upos != "PUNCT")
         expanded = f"{definition['definicao']} de {rest}" if rest else definition["definicao"]
-        u = understand(expanded, world, by)
+        u = _understand(expanded, world, by)
         u.text = text
         if u.message and u.decision == "executar":
             u.message = f"{u.message} (pois «{pred.lemma}» = «{definition['definicao']}»)"

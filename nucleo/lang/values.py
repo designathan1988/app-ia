@@ -327,6 +327,8 @@ def index() -> dict[str, list[tuple[str, str]]]:
     for w, color in color_names().items():  # a color names a value of every color property
         if w not in heads:
             out[w] = [(p, color) for p in color_properties()]
+    for color in named_colors():  # and so does its English (CSS) name
+        out.setdefault(color, [(p, color) for p in color_properties()])
     return out
 
 

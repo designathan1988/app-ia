@@ -139,6 +139,37 @@ VALIDATION = [
 ]
 
 
+# English: the same page and meanings, said in English (same engine; only the parser, lexicon and function words
+# of the language change)
+ENGLISH = [
+    ("align the title to the right", S("text-align", "right", "t")),
+    ("center the paragraph", S("text-align", "center", "p")),
+    ("make the title bold", S("font-weight", "bold", "t")),
+    ("put the paragraph in italic", S("font-style", "italic", "p")),
+    ("underline the title", S("text-decoration-line", "underline", "t")),
+    ("make the title red", S("color", "red", "t")),
+    ("paint the section yellow", S("background-color", "yellow", "s")),
+    ("set the background of the section to black", S("background-color", "black", "s")),
+    ("change the font size of the title to 32px", S("font-size", "32px", "t")),
+    ("set the top margin of the section to 24px", S("margin-top", "24px", "s")),
+    ("duplicate the button", C("element.duplicate", "b")),
+    ("hide the paragraph", C("element.toggleHidden", "p")),
+    ("lock the title", C("element.toggleLock", "t")),
+    ("move the paragraph up", C("element.moveUp", "p")),
+    ("delete the button", {"kind": "removed", "id": "b"}),
+    ("remove the image", {"kind": "removed", "id": "i"}),
+    ("insert a button in the section", {"kind": "added", "type": "button", "parent": "s"}),
+    ("add a paragraph after the title", {"kind": "added", "type": "paragraph", "parent": "s"}),
+    ("create an image at the end of the section", {"kind": "added", "type": "image", "parent": "s"}),
+    ('change the text of the button to "Buy"', {"kind": "field", "field": "text", "value": "Buy"}),
+    ("rename the section to Hero", {"kind": "field", "field": "name", "value": "Hero"}),
+    ("move the title to the end of the section", {"kind": "moved", "id": "t"}),
+    ("put the button before the paragraph", {"kind": "moved", "id": "b"}),
+    ("blorf the button", "perguntar"),
+    ("make it nice", "perguntar"),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -172,3 +203,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run("-v" in sys.argv, VALIDATION)
     print("validação:", c, f"de {len(VALIDATION)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run("-v" in sys.argv or "-en" in sys.argv, ENGLISH)
+    print("inglês:", c, f"de {len(ENGLISH)} em {time.time() - t:.1f}s")

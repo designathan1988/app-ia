@@ -23,9 +23,17 @@ _TOKEN = re.compile(
 )
 
 
-@lru_cache(maxsize=1)
 def contractions() -> dict[str, tuple[str, ...]]:
-    path = MODELS / "contractions.json"
+    from . import langs
+
+    return _contractions(langs.current())
+
+
+@lru_cache(maxsize=4)
+def _contractions(lang: str) -> dict[str, tuple[str, ...]]:
+    from .syntax import models_dir
+
+    path = models_dir(lang) / "contractions.json"
     return {k: tuple(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
 
 

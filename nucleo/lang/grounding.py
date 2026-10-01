@@ -82,8 +82,11 @@ def direct(word: str) -> list[Meaning]:
 
     if any(word in f["verbos"] for f in FRAMES["quadros"]) or word in learned.classes() or word in learned.verbs():
         out.append(Meaning("verbo", word, 0.0))
+    from . import langs
+
+    head_at = -1 if langs.current() == "en" else 0  # the head of a label: "text colour" / "cor do texto"
     for e in lexicon.load():  # the word heads property labels: "cor" (cor do texto, cor da borda...)
-        if e.kind == "propriedade" and e.lemmas[:1] == (w,) and len(e.lemmas) > 1:
+        if e.kind == "propriedade" and len(e.lemmas) > 1 and e.lemmas[head_at] in (w, fold(lexicon.lemma_of(word))):
             from .values import _builder_properties
 
             vt = _builder_properties().get(e.id, {}).get("valueType")
@@ -129,8 +132,14 @@ def _from_graph(word: str, pos: str | None, lang: str) -> list[Meaning]:
     return out
 
 
+def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str | None = None) -> tuple[Meaning, ...]:
+    from . import langs
+
+    return _meanings(word, pos, depth, lang or langs.current())
+
+
 @lru_cache(maxsize=20_000)
-def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str = "pt") -> tuple[Meaning, ...]:
+def _meanings(word: str, pos: str | None, depth: int, lang: str) -> tuple[Meaning, ...]:
     """The meanings a word can have for the machine, cheapest first: what it names directly, then the concept
     graph, then the dictionary's synonyms, translations and definitions (for words the wordnets lack)."""
     found = {(m.kind, m.target): m for m in direct(word)}
@@ -156,6 +165,8 @@ def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str = "pt"
             if key not in found or cost < found[key].cost:
                 found[key] = Meaning(m.kind, m.target, cost, ((how, via),) + m.path)
 
+    if lang != "pt":
+        return tuple(sorted(found.values(), key=lambda m: m.cost))
     for s in dictionary.synonyms(word):
         add(direct(s), "sinonimo", s, 0.0)
     for en in dictionary.translations(word):

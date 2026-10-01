@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 DATA = pathlib.Path(__file__).resolve().parents[2] / "data"
 TREEBANKS = {"bosque": "ud-Bosque/pt_bosque", "petrogold": "ud-PetroGold/pt_petrogold",
-             "porttinari": "ud-Porttinari/pt_porttinari"}
+             "porttinari": "ud-Porttinari/pt_porttinari", "ewt": "ud-EWT/en_ewt"}
 
 
 @dataclass

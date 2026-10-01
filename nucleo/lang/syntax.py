@@ -271,18 +271,25 @@ class Lemmatizer:
 MODELS = pathlib.Path(__file__).resolve().parents[2] / "data" / "models"
 
 
-def save(tagger: Tagger, parser: Parser, lemmatizer: Lemmatizer, contractions: dict) -> None:
-    MODELS.mkdir(parents=True, exist_ok=True)
-    tagger.model.save(MODELS / "tagger.json")
-    (MODELS / "tagdict.json").write_text(json.dumps(tagger.tagdict), encoding="utf-8")
-    parser.model.save(MODELS / "parser.json")
-    parser.labeler.save(MODELS / "labeler.json")
-    (MODELS / "lemmas.json").write_text(json.dumps([[a, b, c] for (a, b), c in lemmatizer.table.items()]),
+def models_dir(lang: str = "pt") -> pathlib.Path:
+    """Portuguese models live in data/models (where they always were); any other language in data/models/<lang>."""
+    return MODELS if lang == "pt" else MODELS / lang
+
+
+def save(tagger: Tagger, parser: Parser, lemmatizer: Lemmatizer, contractions: dict, lang: str = "pt") -> None:
+    MODELS_ = models_dir(lang)
+    MODELS_.mkdir(parents=True, exist_ok=True)
+    tagger.model.save(MODELS_ / "tagger.json")
+    (MODELS_ / "tagdict.json").write_text(json.dumps(tagger.tagdict), encoding="utf-8")
+    parser.model.save(MODELS_ / "parser.json")
+    parser.labeler.save(MODELS_ / "labeler.json")
+    (MODELS_ / "lemmas.json").write_text(json.dumps([[a, b, c] for (a, b), c in lemmatizer.table.items()]),
                                         encoding="utf-8")
-    (MODELS / "contractions.json").write_text(json.dumps(contractions, ensure_ascii=False), encoding="utf-8")
+    (MODELS_ / "contractions.json").write_text(json.dumps(contractions, ensure_ascii=False), encoding="utf-8")
 
 
-def load_models():
+def load_models(lang: str = "pt"):
+    MODELS = models_dir(lang)  # noqa: N806
     t = Tagger()
     t.model = AveragedPerceptron.load(MODELS / "tagger.json")
     t.tagdict = json.loads((MODELS / "tagdict.json").read_text(encoding="utf-8"))
