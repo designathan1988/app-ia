@@ -645,6 +645,9 @@ class Ranker:
                         act = ir.Action(a.op, ir.Ref("node", n), a.args)
                         out.append(Cand(act, components(cx, act, "repeat"), "repeat"))
         types, dests = None, None
+        # Context and weights stay fixed during this call. Each conjunct gets
+        # its own cache when generate recurses, and the next call starts fresh.
+        pairs_by_target: dict = {}
         for sid, of in self._ops(cx):
             sc = E.schemas()[sid]
             tlist = targets if has_target(sc) else [(None, {})]
@@ -656,12 +659,14 @@ class Ranker:
                     else [(None, {})]
                 for typ, tf in creates:
                     target = ir.Ref("node", n) if n is not None else (ir.Ref("new", type=typ) if typ else None)
-                    partial = [({}, _merge(of, nf, tf))]
+                    partial = [({}, _merge(of, nf, tf, cx.lex("act", True, ACTING)))]
                     for spec in sc.args:
                         if spec.name in ("target", "targets") or spec.type == "palette-entry":
                             continue
                         if spec.type == "property":
-                            opts = [({"property": ir.Value(p), "value": v}, f) for (p, v), f in self._pairs(cx, n)]
+                            if n not in pairs_by_target:
+                                pairs_by_target[n] = self._pairs(cx, n)
+                            opts = [({"property": ir.Value(p), "value": v}, f) for (p, v), f in pairs_by_target[n]]
                             partial = self._beam([(dict(a, **o), _merge(f, of_)) for a, f in partial
                                                   for o, of_ in opts])
                             continue

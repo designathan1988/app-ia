@@ -79,7 +79,10 @@ def _from_graph(word: str, lang: str) -> list:
 
     out = []
     try:
-        for ent, cost, *_ in concepts.meanings(word, lang)[:40]:
+        # Stabilize this consumer's cutoff without changing the legacy graph API.
+        meanings = sorted(concepts.meanings(word, lang), key=lambda meaning: (meaning[1], meaning[0]))
+        allowed = [meaning for meaning in meanings if meaning[0][0] in _GRAPH_KIND]
+        for ent, cost, *_ in allowed[:40]:
             kind = _GRAPH_KIND.get(ent[0])
             if kind:
                 out.append((kind, ent[1], math.exp(-cost), "wordnet"))
