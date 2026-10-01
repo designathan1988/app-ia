@@ -87,6 +87,10 @@ py -m venv C:\ctv\n
 C:\ctv\n\Scripts\python.exe -m pip install pytest hypothesis clingo
 C:\ctv\n\Scripts\python.exe -m nucleo.lang.morph        # índice do MorphoBr (uma vez)
 C:\ctv\n\Scripts\python.exe experiments\x2_parser.py 10  # treina etiquetador e analisador (~13 min)
-C:\ctv\n\Scripts\python.exe -m nucleo.lang.values     # nomes em português dos valores CSS (Wiktionary, MDN pt-BR, catálogo; uma vez, ~15 min)
+C:\ctv\n\Scripts\python.exe -m nucleo.lang.values     # nomes em português dos valores CSS (Wiktionary, MDN pt-BR, catálogo; uma vez)
+# dicionário e grafo de conceitos: baixar uma vez para data\dicionario\ o pt-extract.jsonl.gz (kaikki.org),
+# o own-pt.tar.gz extraído (OpenWordNet-PT) e o english-wordnet-2024.xml.gz (Open English WordNet); ver docs\semantica.md
+C:\ctv\n\Scripts\python.exe -m nucleo.lang.dictionary  # definições, sinônimos e traduções (~6 s)
+C:\ctv\n\Scripts\python.exe -m nucleo.lang.concepts    # palavras -> conceitos (ILI) -> entidades da máquina (~8 s)
 C:\ctv\n\Scripts\python.exe scripts\ci.py
 ```
