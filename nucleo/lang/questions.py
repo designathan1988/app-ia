@@ -85,8 +85,10 @@ def _say(lang: str, pt: str, en: str) -> str:
 
 def answer(text: str, world, doc: dict, last=None) -> AnswerText | None:
     """The answer to a question about the page, or None when the text is not such a question."""
+    from . import alternatives
+
     lang = langs.detect(text)
-    with langs.use(lang):
+    with langs.use(lang), alternatives.page_names(world):
         if not is_question(text, lang):
             return None
         return _answer(text, world, doc, last, lang)
@@ -235,31 +237,40 @@ def _has_wh(tokens, lang: str) -> bool:
 
 def _polar(text: str, world, nodes: dict, lang: str) -> AnswerText | None:
     """Yes or no: the states the question's sentence states (as the request engine reads it), each compared with
-    the document. None when the sentence states no style (then it is not this kind of question)."""
+    the document. Equally good readings ("is the button blue?": its text or its fill) are all checked: yes when one
+    holds. None when the sentence states no style (then it is not this kind of question)."""
     from . import interpret
 
     its = interpret.interpretations(re.sub(r"\?+\s*$", "", text), world)
     if not its or its[0].cost > interpret.u_limit():
         return None
-    best = its[0]
-    cons = list(best.constraints) + [c for f in best.facts for c in f.constraints]
-    if not cons or any(c["kind"] != "style" or c["id"] not in nodes for c in cons):
-        return None
-    yes, parts = True, []
-    for c in cons:
-        have = _style(nodes, c["id"], c["property"], (c["breakpoint"], c["state"]))
-        label = _label("propriedade", c["property"])
-        label = label[:1].lower() + label[1:]
-        if have is None:
-            yes = False
-            parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: não definido (vale o padrão do builder)",
-                              f"the {label.lower()} of {_name(world, c['id'])} is not set (the builder's default "
-                              f"applies)"))
+    answers = []
+    for it in its:
+        if it.cost - its[0].cost >= interpret.TIE:
+            break
+        cons = list(it.constraints) + [c for f in it.facts for c in f.constraints]
+        if not cons or any(c["kind"] != "style" or c["id"] not in nodes for c in cons):
             continue
-        same = fold(str(have).lower()) == fold(str(c["value"]).lower())
-        yes = yes and same
-        parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: {have}",
-                          f"the {label.lower()} of {_name(world, c['id'])} is {have}"))
+        yes, parts = True, []
+        for c in cons:
+            have = _style(nodes, c["id"], c["property"], (c["breakpoint"], c["state"]))
+            label = _label("propriedade", c["property"])
+            label = label[:1].lower() + label[1:]
+            if have is None:
+                yes = False
+                parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: não definido (vale o padrão do builder)",
+                                  f"the {label.lower()} of {_name(world, c['id'])} is not set (the builder's "
+                                  f"default applies)"))
+                continue
+            yes = yes and fold(str(have).lower()) == fold(str(c["value"]).lower())
+            parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: {have}",
+                              f"the {label.lower()} of {_name(world, c['id'])} is {have}"))
+        answers.append((yes, parts))
+    if not answers:
+        return None
+    yes, parts = next((x for x in answers if x[0]), answers[0])
+    if not yes:
+        parts = list(dict.fromkeys(p for _, ps in answers for p in ps))
     word = _say(lang, "Sim" if yes else "Não", "Yes" if yes else "No")
     return AnswerText("polar", f"{word}: " + "; ".join(parts) + ".")
 
@@ -295,6 +306,13 @@ def _question_mentions(sentence, tokens) -> list:
 
     for p in sentence.predicates:
         visit(p)
+    # and every noun phrase of the sentence, wherever the analysis put it ("o que tem no formulário?" parsed with
+    # the noun inside a relative clause of "o")
+    heads = {m.head.i for m in out}
+    kids = {}
+    for t in tokens:
+        kids.setdefault(t.head, []).append(t)
+    out += [lf.mention(t, kids) for t in tokens if t.upos in ("NOUN", "PROPN") and t.i not in heads]
     # with the phrases attached to them, at any depth ("o que tem na seção Topo?" however it was parsed)
     full, stack = [], list(out)
     while stack:

@@ -22,6 +22,11 @@ from .lang.interpret import understand_request as understand  # the rebuilt engi
 from .lang.base import FRAMES, World
 
 
+def _step_kind(c: dict) -> str:
+    """How a constraint is carried out: by a command on the element, by selecting it, or by the planner (a state)."""
+    return c["kind"] if c["kind"] in ("command", "selected") else "state"
+
+
 def low_priority() -> None:
     """Run below normal priority (children inherit it): the user's machine must stay usable."""
     if sys.platform == "win32":
@@ -59,22 +64,6 @@ class Session:
         # the engine reads the whole text: its sentences, clauses, courtesy and gapping, in order, with what each
         # makes salient; all the changes are then carried out together (atomic)
         return self._ask_one(text)
-        clauses = [text]
-        start = self.state
-        done = []
-        for c in clauses:
-            a = self._ask_one(c)
-            self.history.pop()
-            if not a.ok:
-                self.state = start
-                ans = Answer(text, a.decision, f"Nada foi feito: na parte «{c}»: {a.message}", [], False)
-                self.history.append(ans)
-                return ans
-            done.append(a)
-        ans = Answer(text, "executado", " Depois: ".join(a.message for a in done),
-                     [c for a in done for c in a.commands], True)
-        self.history.append(ans)
-        return ans
 
     def _understood(self, text: str) -> bool:
         doc = self.document()
@@ -180,7 +169,7 @@ class Session:
     def _carry_out(self, text: str, u) -> Answer:
         cons = list(u.best.constraints)
         placeholders = any(str(c.get(k, "")).startswith("$novo") for c in cons for k in ("id", "parent"))
-        kinds = {c["kind"] == "command" for c in cons}
+        kinds = {_step_kind(c) for c in cons}
         if placeholders or len(kinds) > 1:
             return self._carry_out_in_steps(text, u)
         return self._carry_out_one(text, u)
@@ -192,7 +181,7 @@ class Session:
         start, cmds, mapping, created = self.state, [], {}, 0
         groups, cur = [], []
         for c in u.best.constraints:
-            if cur and (c["kind"] == "command") != (cur[-1]["kind"] == "command"):
+            if cur and _step_kind(c) != _step_kind(cur[-1]):
                 groups.append(cur)
                 cur = []
             cur.append(c)
@@ -247,6 +236,8 @@ class Session:
             return self._build_structure(text, u)
         if any(c["kind"] == "command" for c in u.best.constraints):
             return self._run_command(text, u)
+        if all(c["kind"] == "selected" for c in u.best.constraints):
+            return self._select(text, u)
         r = self.planner.solve_constraints(self.state, u.best.constraints)
         if not r.solved:
             a = Answer(text, "sem_plano", langs.msg("no_plan", getattr(u, "lang", None) or langs.detect(text),
@@ -299,6 +290,24 @@ class Session:
 
         self.last_reading = (u.best.verb, u.best.frame)
         preferences.kept(*self.last_reading)
+        self.history.append(a)
+        return a
+
+    def _select(self, text: str, u) -> Answer:
+        """Point the editor at the elements said (the builder's selection.select): the document does not change."""
+        st, cmds = self.state, []
+        for c in u.best.constraints:
+            res = self.b.call("try", state=st, candidates=[{"command": "selection.select", "args": {"target": c["id"]}}],
+                              keep=True)["results"][0]
+            if res["status"] != "done":
+                a = Answer(text, "recusado", f"O builder recusou a seleção: {res.get('reason') or res['status']}",
+                           cmds, False)
+                self.history.append(a)
+                return a
+            st = res["state"]
+            cmds.append("selection.select")
+        self.state = st
+        a = Answer(text, "executado", u.message, cmds, True)
         self.history.append(a)
         return a
 

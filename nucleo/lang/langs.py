@@ -42,7 +42,7 @@ PROFILES = {
         "ordinals": {"primeiro": 0, "primeira": 0, "segundo": 1, "segunda": 1, "terceiro": 2, "terceira": 2,
                      "quarto": 3, "quarta": 3, "ultimo": -1, "ultima": -1, "penultimo": -2, "penultima": -2},
         "say": {"as": "como", "in": "em", "to": "para", "at": ", na posição", "with_text": "com o texto",
-                "with_name": "com o nome", "already": "(já está assim)", "element": "o elemento", "text": "texto",
+                "with_name": "com o nome", "already": "(já está assim)", "element": "o elemento", "new_m": "o {type} novo", "new_f": "a {type} nova", "text": "texto",
                 "name": "nome", "attributes": "atributos"},
         "articles": {"o", "a", "os", "as", "um", "uma", "uns", "umas"},
         "article_forms": {"a", "o", "as", "os"},
@@ -71,7 +71,7 @@ PROFILES = {
         "new": {"new", "another", "extra", "more", "additional"},
         "ordinals": {"first": 0, "second": 1, "third": 2, "fourth": 3, "last": -1, "penultimate": -2},
         "say": {"as": "to", "in": "in", "to": "to", "at": ", at position", "with_text": "with the text",
-                "with_name": "named", "already": "(already so)", "element": "the element", "text": "text",
+                "with_name": "named", "already": "(already so)", "element": "the element", "new_m": "the new {type}", "new_f": "the new {type}", "text": "text",
                 "name": "name", "attributes": "attributes"},
         "articles": {"the", "a", "an"},
         "article_forms": {"the", "a", "an"},
@@ -242,7 +242,7 @@ def action_word(action: str, lang: str) -> str:
     from ..builder.client import DEFAULT_BUILDER
 
     keys = {"insert": "command.insertElement", "remove": "command.delete", "move": "command.moveTo",
-            "set": "command.setText"}
+            "set": "command.setText", "select": "command.select"}
     cat = json.loads((pathlib.Path(DEFAULT_BUILDER) / "src" / "i18n" / "locales" / profile(lang)["catalog"])
                      .read_text(encoding="utf-8"))
     label = cat.get(keys[action], action)

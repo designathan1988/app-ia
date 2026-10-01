@@ -149,8 +149,15 @@ def _parsed(words, tags):
     from .base import make_tokens
 
     _, parser, _, _ = _models()
-    shown = [("VALOR" if is_literal(w) else w) for w in words]
-    return make_tokens(words, tags, parser.parse(shown, tags))
+    return make_tokens(words, tags, parser.parse([_shown(w) for w in words], tags))
+
+
+def _shown(w: str) -> str:
+    """The word as the models see it: a literal as a value; a page name joined into one word as its first word,
+    capitalized (a proper noun)."""
+    if is_literal(w):
+        return "VALOR"
+    return w.split(" ")[0].capitalize() if " " in w else w
 
 
 def _tag_variants(words: list[str], tags: list[str]) -> list[tuple[list[str], list[str]]]:
@@ -160,8 +167,8 @@ def _tag_variants(words: list[str], tags: list[str]) -> list[tuple[list[str], li
     options = {}
     doubtful = set()
     for k, (w, t) in enumerate(zip(words, tags)):
-        if is_literal(w) or (w.lower() in tagger.tagdict and t not in CONTENT and t != "ADP"):
-            continue
+        if is_literal(w) or " " in w or (w.lower() in tagger.tagdict and t not in CONTENT and t != "ADP"):
+            continue  # (a literal, a page name: one unit, its category is not in doubt)
         cats = categories(w, lang)
         if not cats and w.isalpha() and w.lower() not in tagger.tagdict:
             # no lexicon knows the form: closed classes are all known, so it is an open-class word
@@ -231,15 +238,58 @@ def _attachment_variants(tokens, step: bool = False) -> list[tuple[list[int], li
     return out
 
 
+_PAGE_NAMES: list = [()]  # the multiword names of the elements of the page being talked about (a stack)
+
+
+class page_names:
+    """While reading requests about a page, its elements' multiword names ("Massas frescas", "Ver mais") are lexical
+    units: one proper name each, as a quoted literal is one value, whatever the words inside would be in the
+    sentence's language ("make the Massas frescas heading smaller")."""
+
+    def __init__(self, world) -> None:
+        from .values import fold
+
+        names = {(n.get("name") or "").strip() for n in world.nodes.values()}
+        self.names = tuple(sorted({tuple(fold(w.lower()) for w in tokenize(x)) for x in names
+                                   if len(tokenize(x)) > 1}, key=len, reverse=True))
+
+    def __enter__(self):
+        _PAGE_NAMES.append(self.names)
+        return self
+
+    def __exit__(self, *exc):
+        _PAGE_NAMES.pop()
+
+
+def _fuse_names(words: list) -> list:
+    """The words with each multiword name of the page joined into one word."""
+    from .values import fold
+
+    names = _PAGE_NAMES[-1]
+    if not names:
+        return words
+    folded = [fold(w.lower()) for w in words]
+    out, k = [], 0
+    while k < len(words):
+        hit = next((n for n in names if tuple(folded[k:k + len(n)]) == n), None)
+        if hit is None:
+            out.append(words[k])
+            k += 1
+            continue
+        out.append(" ".join(words[k:k + len(hit)]))
+        k += len(hit)
+    return out
+
+
 def analyses(text: str, limit: int = 200) -> list[Analysis]:
     """The greedy analysis first, then the alternatives in order of cost (number of edits)."""
     from .base import make_tokens
 
     tagger, parser, _, _ = _models()
-    words = tokenize(text)
+    words = _fuse_names(tokenize(text))
     if not words:
         return []
-    shown = [("VALOR" if is_literal(w) else w) for w in words]
+    shown = [_shown(w) for w in words]
     tags = tagger.tag(shown)
     base = Analysis(make_tokens(words, tags, parser.parse(shown, tags)))
     found = [base]

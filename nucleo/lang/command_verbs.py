@@ -112,6 +112,19 @@ def verbs() -> set[str]:
     return set(table())
 
 
+@lru_cache(maxsize=4)
+def selection_verbs(lang: str) -> frozenset:
+    """The verbs that select an element (the builder's "Selecionar" / "Select", ``selection.select``: it changes
+    what the editor points at, not the document), with the dictionary's other verbs for it in Portuguese."""
+    from . import langs
+
+    word = langs.action_word("select", lang)
+    out = {word}
+    if lang == "pt":
+        out |= {w for w in values._load(values.TRANSLATIONS).get("select", []) if "INF" in values._pos(w)}
+    return frozenset(out)
+
+
 def _table_other(lang: str, root: str | None = None) -> dict[str, list[CommandVerb]]:
     """Command verbs of another language, from that language's catalog: the label's first word is a verb its wordnet
     knows ("Duplicate", "Move up" -> move + up)."""

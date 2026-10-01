@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from . import command_verbs, langs, learned, lexicon
 from . import values as values_mod
+from .morph import analyses as _pt_analyses
 from .morph import lemmas as _pt_lemmas
 from .syntax import load_models
 from .tokenize import is_literal, literal_value, tokenize
@@ -276,6 +277,22 @@ def _property_facts() -> dict:
             {e["id"]: e.get("content") for e in elements})
 
 
+@lru_cache(maxsize=1)
+def _form_controls() -> frozenset:
+    """The element types the builder counts as form controls (``src/core/style/applies.ts``, KINDS.formControl: the
+    widgets with a native appearance), by the tag each type is written with."""
+    import json as _json
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    root = pathlib.Path(DEFAULT_BUILDER)
+    src = root / "src" / "core" / "style" / "applies.ts"
+    m = re.search(r"formControl:\s*\[([^\]]*)\]", src.read_text(encoding="utf-8")) if src.exists() else None
+    tags = set(re.findall(r"'([a-z]+)'", m.group(1))) if m else set()
+    elements = _json.loads((root / "manifest" / "elements.json").read_text(encoding="utf-8"))["elements"]
+    return frozenset(e["id"] for e in elements if e.get("tag") in tags)
+
+
 def _prior(prop: str, node_type: str | None) -> float:
     """How unlikely a property is as the meaning for this element: the builder shows essential properties first;
     a property that does not apply to the element's content (a text property on a section) is unlikely; and on a
@@ -284,9 +301,12 @@ def _prior(prop: str, node_type: str | None) -> float:
     props, contents = _property_facts()
     applies, essential = props.get(prop, ("always", False))
     cost = 0.0 if essential else 1.0
+    control = node_type in _form_controls()
     if applies == "text" and contents.get(node_type) != "text":
         cost += 3.0
-    elif applies == "always" and contents.get(node_type) == "text":
+    elif applies == "always" and contents.get(node_type) == "text" and not control:
+        # (a form control is drawn as a filled box, its native appearance: on one, "o botão verde" may be its text or
+        # its fill, equally; the reading then asks which)
         cost += 1.0
     elif applies == "hasBox":
         cost += 0.5
@@ -320,15 +340,35 @@ def _label(kind: str, id_: str) -> str:
     return id_
 
 
+def _feminine(noun: str) -> bool:
+    """Whether a Portuguese noun is feminine (MorphoBr), for the article and adjective said with it."""
+    if langs.current() != "pt":
+        return False
+    tags = [t for _, t in _pt_analyses(noun.split()[0])]
+    return any(t.startswith("N+F") for t in tags) and not any(t.startswith("N+M") for t in tags)
+
+
 def paraphrase(constraints: list, world: World) -> str:
     """What was understood, said back in the request's language: the action verbs are the builder's own labels in
     that language, the names are the document's, and the function words come from the language profile."""
     lang = langs.current()
     say = langs.profile()["say"]
 
+    # (an element the text itself creates is said by its type: "o botão novo", "the new button")
+    created = [c["type"] for c in constraints if c["kind"] == "added"]
+
     def name(nid):
         n = world.nodes.get(nid) if nid else None
-        return f"«{n['name']}»" if n else say["element"]
+        if n and n.get("name"):
+            return f"«{n['name']}»"
+        typ = n["type"] if n else None
+        if typ is None and str(nid).startswith("$novo"):
+            k = int(str(nid)[5:]) - 1
+            typ = created[k] if 0 <= k < len(created) else None
+        if typ is None:
+            return say["element"]
+        label = _label("tipo", typ).lower()
+        return say["new_f" if _feminine(label) else "new_m"].format(type=label)
 
     from .tokenize import contractions
 
@@ -363,6 +403,8 @@ def paraphrase(constraints: list, world: World) -> str:
             field = say.get(c["field"], c["field"])
             parts.append(f"{langs.action_word('set', lang)} {field} {of(c['id'])} {say['as']} "
                          f"{json.dumps(c['value'], ensure_ascii=False)}")
+        elif c["kind"] == "selected":
+            parts.append(f"{langs.action_word('select', lang)} {name(c['id'])}")
         elif c["kind"] == "command":
             parts.append(f"{c['label'].lower()} {name(c['id'])}" + (f" {say['already']}" if c.get("already") else ""))
     text = "; ".join(parts)

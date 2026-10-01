@@ -447,6 +447,48 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
 - **Velocidade:** cerca de 0,14 s por pedido (eram 1,1 s).
 - **Bateria M5:** 93,1%, 0 erros silenciosos (o antigo, 92,4%).
 
+### Verificação de ponta a ponta e rodada 9 (2026-10-01)
+- **Interface web** (pré-visualização "nucleo", porta 8790), uma conversa real em pt e en. Achou classes que os
+  conjuntos não cobriam, todas corrigidas pela raiz:
+  - um rótulo de estado de uma palavra usado na sua função gramatical não é estado ("Depois deixa…" virava `::after`);
+  - um pronome pessoal não explica palavras penduradas nele ("deixa ele azul e centralizado" perdia o azul);
+  - um literal classificado pelo rótulo antes dele é o valor desse campo ("the text 'X'");
+  - **resultados que dependiam da ordem dos pedidos**: o índice de valores, os nomes de cores e as âncoras dos
+    comandos eram guardados em cache na língua do primeiro pedido; agora são construídos sempre a partir dos dados
+    portugueses;
+  - perguntas:
+    - palavras interrogativas são variáveis, não anáforas;
+    - um rótulo exato de tipo não recebe propriedade do grafo ("título" ≠ right);
+    - a propriedade perguntada é escolhida pela probabilidade a priori e pelo que o elemento tem definido;
+    - perguntas de sim/não são verificadas pela leitura do próprio motor contra o documento;
+    - a página é consultada antes do código, e o índice do código (cerca de 20 s) só é montado quando a pergunta não
+      é sobre a página.
+- **Rodada 9** (`experiments/rodada9.py`): uma quarta página, com estilos e textos definidos. Tem 44 pedidos (pt/en,
+  textos com discurso) e 24 perguntas.
+
+  | Medida | Pedidos (certos/perguntou/ERRADO) | Perguntas |
+  |---|---|---|
+  | Limpa | 36/4/4 | 23/1/0 |
+  | Depois das correções | 41/3/0 | 24/0/0 |
+
+  As classes corrigidas foram:
+  - advérbio antes do verbo é de discurso ("Primeiro…", "Agora…", "Then…");
+  - comando alcançado longe no grafo não impede cortesia ("Obrigado!");
+  - nomes de vários termos da página são uma unidade lexical ("the Massas frescas heading");
+  - compostos nominais do inglês restringem por contenção ("the card title");
+  - nome cujo elemento contradiz o tipo dito cede ao nome entre línguas desse tipo ("the menu section" = «Cardápio»);
+  - o estado **selecionado**: o comando `selection.select` do builder, que torna o elemento saliente;
+  - "o texto do X" exige uma propriedade de texto.
+- **Ambiguidade texto/caixa num controle de formulário.**
+  - Os conjuntos antigos esperavam "o botão azul" = cor do texto; a rodada 9 esperava o fundo.
+  - O builder define os controles de formulário (`applies.ts`: input, textarea, select, button, progress, meter),
+    que são desenhados como caixa preenchida. Neles, a cor nua é igualmente o texto ou o fundo.
+  - Leituras empatadas (diferença < 0,25) de um mesmo predicado, quando dão o mesmo valor ao mesmo elemento em
+    propriedades do texto e da caixa, agora são rivais, e o motor **pergunta**.
+  - Uma pergunta sobre uma frase de um texto leva o texto inteiro em cada opção: a resposta executa tudo.
+  - Por isso o conjunto de regressão foi de 252 para 245 certos: os 7 restantes perguntam, e há 0 errados.
+- **Medidas:** rodada 7 52/4/0; rodada 8 38/5/0; M5 93,1% e 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

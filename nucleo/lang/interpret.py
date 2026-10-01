@@ -31,6 +31,7 @@ from .tokenize import is_literal
 from .values import fold
 
 RIVAL_MARGIN = 1.0
+TIE = 0.25  # two readings of one predicate this close are equally good: neither is chosen silently
 UNLIKELY = 2.0  # a property this improbable for the element, reached by one clue only, is confirmed first
 CONSTRUCTION = 1.5  # a meaning the construction gives, not the verb (caused motion, insertion): Goldberg
 MEANINGFUL_UNUSED = 4.5  # a word with a meaning that the reading ignores: never executed silently
@@ -236,63 +237,69 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 options = [o for o in options if _attribute_ok(o[0], ntype, o[1])]
             else:
                 options = [o for o in options if reachable(o[0])]
+            if pd is not None and pd.kind == "field" and pd.data[1] == "text":
+                # the text of an element said ("o texto do botão branco"): a property of text
+                options = [o for o in options if u._property_facts()[0].get(o[0], ("always",))[0] == "text"]
             if not options:
                 continue
             best = min(c for _, _, c in options)
             chosen = [o for o in options if o[2] == best]
-            prop, value, prior = chosen[0]
-            if pd is not None and pd.data[0] == "propriedade" and pd.data[1] == prop:
-                # the property was named: how likely it is for such an element only breaks ties
-                prior = min(prior, 0.5)
-            used = set(v.words) | (set(pd.words) if pd is not None else set())  # (a label word is not a layer)
-            bp, st, layer_words = _layer(p, [x for x in tokens if x.i not in used], world)
-            ask = None
-            if v.kind == "cmp":
-                value, ask = _scaled(world, nodes[0], prop, v.data)
-            cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
-                     "value": u._as_keyword(value, prop)} for n in nodes]
-            if said is not None and said[0] == "atributo":
-                # an HTML attribute said ("o id do parágrafo como 'note'"): the element's attributes
-                cons = [{"kind": "field", "id": n, "field": "attributes", "value": {prop: value}} for n in nodes]
-            explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
-                ev.particles | explained_side | layer_words
-            # (the owner's cost is already in the property said when the element is that owner)
-            t_cost = 0.0 if owner is not None else t.cost
-            cost = v.cost + t_cost + prior + ev.kinds.get("style", 9.0)
-            if pd is not None:
-                explained |= set(pd.words)
-                cost += pd.cost
-            for a in (va, ta, pa):
-                if a is not None:
-                    explained |= _case_tokens(a.mention)
-            notes = list(t.notes)
-            if len({o[0] for o in chosen}) > 1:
-                cost += 0.5
-                notes.append("várias propriedades possíveis")
-            # coordinated values ("em negrito e itálico", "bold and italic"): each one on the same element
-            if va is not None:
-                for c2 in va.mention.conj:
-                    for v2 in gr.values(c2):
-                        if v2.kind != "val":
-                            continue
-                        opts2 = [(q, val, u._prior(q, ntype)) for q, val in v2.data]
-                        q, val, _ = min(opts2, key=lambda o: o[2])
-                        cons += [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": q,
-                                  "value": u._as_keyword(val, q)} for n in nodes]
-                        explained |= set(v2.words) | {t.i for t in va.mention.words if t.upos == "CCONJ"}
-                        break
-            c = Cand("style", [] if ask else cons, cost, explained, notes, list(nodes) if t.ambiguous else [])
-            c.ask_value = ask
-            # a value named only by the verb ("arredondar": arredondado = round) for a property unlikely on this
-            # element is a single weak clue: confirmed before it is done
-            c.uncertain = va is None and v.kind == "val" and prior >= UNLIKELY
-            c.parts = {"valor": v.cost, "alvo": t_cost, "propriedade_a_priori": prior,
-                       "verbo": ev.kinds.get("style", 9.0), "propriedade_dita": pd.cost if pd is not None else 0.0,
-                       "varias": cost - (v.cost + t_cost + prior + ev.kinds.get("style", 9.0) +
-                                         (pd.cost if pd is not None else 0.0))}
-            c.sources = {"valor": (v.kind, sorted(v.words)), "propriedade": (pd.data[:2] if pd is not None else None),
-                         "alvo": sorted(t.words)}  # (which words gave what: to explain the reading)
-            out.append(c)
+            applies = {u._property_facts()[0].get(o[0], ("always",))[0] == "text" for o in chosen}
+            # equally likely properties of the element's text and of its box ("o botão azul": its text or its fill)
+            # are different meanings: each is a reading of its own, and the decision asks which
+            for prop, value, prior in (chosen if len(applies) > 1 else chosen[:1]):
+                if pd is not None and pd.data[0] == "propriedade" and pd.data[1] == prop:
+                    # the property was named: how likely it is for such an element only breaks ties
+                    prior = min(prior, 0.5)
+                used = set(v.words) | (set(pd.words) if pd is not None else set())  # (a label word is not a layer)
+                bp, st, layer_words = _layer(p, [x for x in tokens if x.i not in used], world)
+                ask = None
+                if v.kind == "cmp":
+                    value, ask = _scaled(world, nodes[0], prop, v.data)
+                cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
+                         "value": u._as_keyword(value, prop)} for n in nodes]
+                if said is not None and said[0] == "atributo":
+                    # an HTML attribute said ("o id do parágrafo como 'note'"): the element's attributes
+                    cons = [{"kind": "field", "id": n, "field": "attributes", "value": {prop: value}} for n in nodes]
+                explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
+                    ev.particles | explained_side | layer_words
+                # (the owner's cost is already in the property said when the element is that owner)
+                t_cost = 0.0 if owner is not None else t.cost
+                cost = v.cost + t_cost + prior + ev.kinds.get("style", 9.0)
+                if pd is not None:
+                    explained |= set(pd.words)
+                    cost += pd.cost
+                for a in (va, ta, pa):
+                    if a is not None:
+                        explained |= _case_tokens(a.mention)
+                notes = list(t.notes)
+                if len({o[0] for o in chosen}) > 1:
+                    cost += 0.5
+                    notes.append("várias propriedades possíveis")
+                # coordinated values ("em negrito e itálico", "bold and italic"): each one on the same element
+                if va is not None:
+                    for c2 in va.mention.conj:
+                        for v2 in gr.values(c2):
+                            if v2.kind != "val":
+                                continue
+                            opts2 = [(q, val, u._prior(q, ntype)) for q, val in v2.data]
+                            q, val, _ = min(opts2, key=lambda o: o[2])
+                            cons += [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": q,
+                                      "value": u._as_keyword(val, q)} for n in nodes]
+                            explained |= set(v2.words) | {t.i for t in va.mention.words if t.upos == "CCONJ"}
+                            break
+                c = Cand("style", [] if ask else cons, cost, explained, notes, list(nodes) if t.ambiguous else [])
+                c.ask_value = ask
+                # a value named only by the verb ("arredondar": arredondado = round) for a property unlikely on this
+                # element is a single weak clue: confirmed before it is done
+                c.uncertain = va is None and v.kind == "val" and prior >= UNLIKELY
+                c.parts = {"valor": v.cost, "alvo": t_cost, "propriedade_a_priori": prior,
+                           "verbo": ev.kinds.get("style", 9.0), "propriedade_dita": pd.cost if pd is not None else 0.0,
+                           "varias": cost - (v.cost + t_cost + prior + ev.kinds.get("style", 9.0) +
+                                             (pd.cost if pd is not None else 0.0))}
+                c.sources = {"valor": (v.kind, sorted(v.words)), "propriedade": (pd.data[:2] if pd is not None else None),
+                             "alvo": sorted(t.words)}  # (which words gave what: to explain the reading)
+                out.append(c)
     return out
 
 
@@ -701,6 +708,18 @@ def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
     return out
 
 
+def _selected(p, args, world) -> list[Cand]:
+    """Selecting an element ("seleciona o botão Reservar", "select the heading"): the editor points at it, and the
+    discourse is about it from then on; the document does not change."""
+    from .command_verbs import selection_verbs
+
+    if fold(p.lemma) not in {fold(v) for v in selection_verbs(langs.current())}:
+        return []
+    return [Cand("selected", [{"kind": "selected", "id": n} for n in t.data], t.cost, set(t.words) | {p.head.i},
+                 list(t.notes), list(t.data) if t.ambiguous else [])
+            for a, t in _said_themes(p, args)]
+
+
 def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
     """The text and name a new element is given in its own phrase: a field word with a literal ("com o texto
     'X'", "with the text 'X'") or a naming participle with a literal ("chamado X", "named X")."""
@@ -886,10 +905,19 @@ def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
         t = by_i[i]
         if fold(t.form.lower()) in langs.profile()["new"] | langs.profile()["universal"]:
             continue
-        m = _meaningful(t)
+        m = _meaningful(t) and not _discourse_adverb(t, p, tokens)
         cost += MEANINGFUL_UNUSED if m else UNUSED
         left.append(t.form)
     return cost, left
+
+
+def _discourse_adverb(t, p, tokens) -> bool:
+    """A bare adverb put before the verb it modifies ("Primeiro esconde o logo", "Agora centraliza", "Then make it
+    red"): it places the event in the discourse (order, time), it says nothing of the state. (After the verb, a bare
+    adverb may say where or how: "move it up".)"""
+    if t.upos != "ADV" or t.deprel.split(":")[0] != "advmod" or t.head != p.head.i or t.i > p.head.i:
+        return False
+    return not any(x.head == t.i and x.upos != "PUNCT" for x in tokens)
 
 
 # -- the predicate and the sentence -------------------------------------------------------------------------------
@@ -904,7 +932,8 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
     lemmas = {t.i: lexicon.lemma_of(t.form) for t in tokens}
     lemmas.update({t.i: fold(t.lemma) for t in tokens if t.upos in ("VERB", "ADP", "ADV")})
     cands = _style(p, args, ev, world, ctx, tokens) + _commands(p, args, ev, world, lemmas, ctx) + \
-        _structural(p, args, ev, world, ctx) + _fields(p, args, ev, world, ctx) + _value_removal(p, args, ev, world)
+        _structural(p, args, ev, world, ctx) + _fields(p, args, ev, world, ctx) + \
+        _value_removal(p, args, ev, world) + _selected(p, args, world)
     # a causative ("faz o parágrafo sumir", "make the image disappear"): the caused event, its theme the causee
     for r, w, q in p.roles:
         if isinstance(q, lf.Predicate) and r in ("content", "result"):
@@ -953,7 +982,8 @@ def _courtesy(p: lf.Predicate, tokens) -> bool:
     by_i = {t.i: t for t in tokens}
     ev = gr.verb_evidence(p, tokens)
     # (a value reached only through a synonym, "valer" ~ "anular": none, is no specific meaning of the verb)
-    specific = ev.commands or ev.pairs and ev.kinds.get("style", 9.0) < 1.0 or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
+    # (a command reached far through the concept graph, "obrigado" ~ duplicar at 2.0, is no meaning of the word)
+    specific = ev.pairs and ev.kinds.get("style", 9.0) < 1.0 or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
     return not specific and not any(_meaningful(by_i[i]) for i in _content_tokens(p) if i != p.head.i and i in by_i)
 
 
@@ -1003,6 +1033,7 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
             continue
         w = _world_with(world, ctx)
         total, cons, chosen, facts = a.cost, [], [], []
+        alternates = {}
         local = ctx
         ok = True
         for p in s.predicates:
@@ -1028,6 +1059,7 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
             total += rs[0].cost
             cons += rs[0].constraints
             chosen.append(rs[0])
+            alternates[id(rs[0])] = [r for r in rs[1:4] if r.cost - rs[0].cost < TIE and _other_property(rs[0], r)]
             local = _after([rs[0]], local, w)
             w = _world_with(w, local)
         # words of the sentence that no predicate covers (an analysis that hung a phrase outside every clause)
@@ -1039,8 +1071,15 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
                 total += MEANINGFUL_UNUSED if _meaningful(t) else UNUSED
         if ok and (chosen or facts):
             best = total if best is None else min(best, total)
-            out.append(Interpretation(total, cons, chosen, a, s,
-                                      "assertion" if facts and not chosen else s.predicates[0].act, local, facts))
+            act = "assertion" if facts and not chosen else s.predicates[0].act
+            out.append(Interpretation(total, cons, chosen, a, s, act, local, facts))
+            # another reading of one predicate, nearly as cheap and with another effect, is a rival meaning of the
+            # same analysis ("o botão azul": its text or its fill); the decision weighs it like any other
+            for k, c in enumerate(chosen):
+                for alt in alternates.get(id(c), []):
+                    others = chosen[:k] + [alt] + chosen[k + 1:]
+                    out.append(Interpretation(total - c.cost + alt.cost, [x for r in others for x in r.constraints],
+                                              others, a, s, act, local, facts))
         elif ok and courtesy:
             out.append(Interpretation(total, [], [], a, s, "courtesy", local, []))
         if courtesy and (chosen or facts) and all(_courtesy(p, a.tokens) for p in s.predicates):
@@ -1150,7 +1189,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
     each sentence in order, with what the earlier ones made salient."""
     u = _u()
     lang = lang or langs.detect(text)
-    with langs.use(lang):
+    with langs.use(lang), alternatives.page_names(world):
         sentences = _sentences(text) or [text]
         ctx = ctx or Context()
         work = _world_with(world, Context())
@@ -1196,7 +1235,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                                                best.paraphrase, lang))
                 ctx = c2
                 continue
-            r = _decide(sent, its, work, lang)
+            r = _decide(sent, its, _world_with(work, ctx), lang)  # (with what earlier sentences created)
             results.append(r)
             if its:
                 ctx = its[0].context or ctx
@@ -1209,6 +1248,16 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         failed = next((r for r in acting if r.decision != "executar"), None)
         if failed is not None:
             failed.text = text
+            if failed.decision == "perguntar" and failed.readings and \
+                    all(r.decision == "executar" for r in acting if r is not failed):
+                # a question about one sentence of a text: each option is the whole text with that sentence read so
+                # (the answer then carries out all of it, "Cria um botão… Depois pinta ele…": "o fundo")
+                k = acting.index(failed)
+                before = [c for r in acting[:k] for c in r.best.constraints]
+                after = [c for r in acting[k + 1:] for c in r.best.constraints]
+                for rd in failed.readings:
+                    rd.constraints = before + list(rd.constraints) + after
+                    rd.paraphrase = u.paraphrase(rd.constraints, world)
             return failed
         cons = [c for r in acting for c in r.best.constraints]
         best = u.Reading("texto", cons, sum(r.best.cost for r in acting), [], u.paraphrase(cons, world))
@@ -1265,12 +1314,31 @@ def _decide(text, its, world, lang):
     if amb:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in amb[:6] if n in world.nodes)
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("which", names=names), lang)
-    rivals = [i for i in its[1:] if i.cost - best.cost < RIVAL_MARGIN and
-              _effect(i.constraints) != _effect(best.constraints) and i.constraints]  # (doing nothing is no rival)
+    rivals, seen = [], {_effect(best.constraints)}
+    for i in its[1:]:
+        # (doing nothing is no rival; the same effect reached by another analysis is the same meaning)
+        if i.cost - best.cost < RIVAL_MARGIN and i.constraints and _effect(i.constraints) not in seen:
+            seen.add(_effect(i.constraints))
+            rivals.append(i)
     if rivals:
         options = langs.msg("or").join(f"«{u.paraphrase(i.constraints, world)}»" for i in [best] + rivals[:2])
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("did_you_mean", options=options), lang)
     return u.Understanding(text, tokens, rs, "executar", para, lang)
+
+
+def _other_property(a: Cand, b: Cand) -> bool:
+    """Whether b gives the same value to the same elements as a, on a property of the other part of them (their text,
+    or their box): "o botão azul" for a button's text color or its fill."""
+    u = _u()
+    if a.state != "style" or b.state != "style" or len(a.constraints) != len(b.constraints) or not a.constraints:
+        return False
+    facts = u._property_facts()[0]
+    for x, y in zip(a.constraints, b.constraints):
+        if x["kind"] != "style" or y["kind"] != "style" or x["id"] != y["id"] or x["value"] != y["value"]:
+            return False
+        if (facts.get(x["property"], ("always",))[0] == "text") == (facts.get(y["property"], ("always",))[0] == "text"):
+            return False
+    return True
 
 
 def _effect(constraints: list) -> tuple:

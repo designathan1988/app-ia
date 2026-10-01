@@ -309,6 +309,17 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
         if cross:
             names = [nid for nid, _, _ in cross]
             cross_cost = min(c for _, _, c in cross)
+    elif names and not phrase and types and m.head.i not in {t.i for t in m.words if literal_value(t.form).lower()
+                                                             in {(world.nodes[n]["name"] or "").lower() for n in names}}:
+        # a name whose element is not of the type said ("the menu section": the nav is «Menu»): the element of that
+        # type the name may mean in the other language («Cardápio»), when there is one
+        present = {v["type"] for v in world.nodes.values()}
+        type_ids = {ty for ty, _, _ in types} & present
+        if not any(world.nodes[n]["type"] in type_ids for n in names):
+            cross = [x for x in _cross_named(m, world) if world.nodes[x[0]]["type"] in type_ids]
+            if cross:
+                names = [nid for nid, _, _ in cross]
+                cross_cost = min(c for _, _, c in cross)
     cands: list = []
     cost = 0.0
     notes: tuple = ()
@@ -363,6 +374,28 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
             cands = inside
             explained |= set(sub[0].words) | {t.i for t in a.words if t.upos == "ADP"}
             cost += sub[0].cost
+    # a noun before the head that refers to an element restricts by containment, as an attached phrase does ("the
+    # card title" = the title of the card, English noun compounds); the elements of the type said inside it when the
+    # name read first is not there
+    for t in m.mods:
+        if not restrict or t.upos not in ("NOUN", "PROPN"):
+            continue
+        sub = references(Mention(t, [t]), world)
+        if not sub:
+            continue
+        anchors = set(sub[0].data)
+        inside = [n for n in cands if n not in anchors and any(_descends(n, x, world) for x in anchors)]
+        if not inside and types:
+            kinds = {ty for ty, _, _ in types}
+            inside = [n for n, v in world.nodes.items() if v["type"] in kinds and
+                      any(_descends(n, x, world) for x in anchors)]
+            if inside:
+                names, cost = [], min(c for _, c, _ in types)
+                explained |= set().union(*(ws for _, _, ws in types))
+        if inside:
+            cands = inside
+            explained |= set(sub[0].words)
+            cost += sub[0].cost
     explained |= {t.i for t in m.words if fold(t.form.lower()) in prof.get("whole", set())}
     # determiners and ordinals pick among the candidates
     if m.ordinal is not None and cands:
@@ -403,6 +436,9 @@ def properties(m: Mention, world) -> list[Den]:
     from .base import FRAMES
 
     out = []
+    head_name = literal_value(m.head.form).lower()
+    if m.head.form[:1].isupper() and m.head.i > 1 and             any((n.get("name") or "").lower() == head_name for n in world.nodes.values()):
+        return []  # (the name of an element of the page, "a seção Topo", is not the label it spells: "Topo" = top)
     toks = _chain(m)
     seq = _lemmas(toks)
     for start in range(len(seq)):
@@ -451,12 +487,17 @@ def properties(m: Mention, world) -> list[Den]:
                 owner = refs[0]
                 break
         if owner is None:
-            for t in m.mods:
-                if t.upos in ("NOUN", "PROPN") and t.i not in d.words:
-                    refs = references(Mention(t, [t]), world)
-                    if refs:
-                        owner = refs[0]
-                        break
+            # (the nouns before the label, together: "the menu section background" is the background of the menu
+            # section, not of «Menu» and of a section)
+            nouns = [t for t in m.mods if t.upos in ("NOUN", "PROPN") and t.i not in d.words]
+            from .logic_form import mention as _mention
+
+            whole = [_mention(nouns[-1], {nouns[-1].i: nouns[:-1]})] if len(nouns) > 1 else []
+            for sub in whole + [Mention(t, [t]) for t in nouns]:
+                refs = references(sub, world)
+                if refs:
+                    owner = refs[0]
+                    break
         data = d.data + ((owner,) if owner else (None,))
         words = d.words | (owner.words if owner else frozenset())
         res.append(Den(d.kind, data, d.cost + (owner.cost if owner else 0.0), words, d.notes,
