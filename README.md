@@ -4,6 +4,7 @@ Motor cognitivo **sem LLM** para programação. A inteligência vem de conhecime
 explícito, raciocínio com prova, busca, aprendizado estrutural e verificação.
 
 - Plano aprovado: [docs/plano.md](docs/plano.md)
+- **Compreensão, plano em vigor (Plano D):** [docs/plano_aprendizado.md](docs/plano_aprendizado.md): aprendida de anotação humana pública, medida em frases escritas por outras pessoas
 - Registro da pesquisa (90+ técnicas, com fontes): [docs/pesquisa.md](docs/pesquisa.md)
 - Semântica formal com exemplos executáveis: [docs/semantica.md](docs/semantica.md)
 - Achados (defeitos descobertos, com evidência): [docs/achados.md](docs/achados.md)

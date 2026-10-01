@@ -1,5 +1,7 @@
 # Compreensão: diagnóstico e plano (reconstrução do motor)
 
+> **Substituído em 2026-10-01 pelo [Plano D](plano_aprendizado.md).** Este documento é registro histórico. O ciclo de rodadas e congelados escritos por mim, com uma regra por classe de erro, foi abandonado porque a medida limpa não convergia.
+
 ## 1. Diagnóstico do motor atual (medido, não opinado)
 
 **Arquivo e estrutura**
