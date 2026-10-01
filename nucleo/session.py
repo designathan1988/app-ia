@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from .lang import dialogue, langs, learned
 from .lang.interpret import understand_request as understand  # the rebuilt engine (plan C6)
-from .lang.understand import FRAMES, World
+from .lang.base import FRAMES, World
 
 
 def low_priority() -> None:
@@ -112,7 +112,7 @@ class Session:
                 node = dialogue.ellipsis_target(text, self._world())
             if node is not None and node not in self.dialog.last_nodes:
                 cons = dialogue.repeat_on(self.dialog.last_constraints, self.dialog.last_nodes, node)
-                from .lang.understand import paraphrase
+                from .lang.base import paraphrase
 
                 with langs.use(langs.detect(text)):
                     said = paraphrase(cons, self._world())
@@ -127,7 +127,7 @@ class Session:
         """What an unknown verb means, from the request the user gave as its example: the change it made, said in
         the core language and without its element ("definir o peso da fonte como bold"), so the verb then works on
         any element. Generated from the constraints, not copied from the reply."""
-        from .lang.understand import _label, _regular_infinitives
+        from .lang.base import _label, _regular_infinitives
 
         inf = (_regular_infinitives(verb) or [verb])[0]
         c = reading.constraints[0] if len(reading.constraints) == 1 else None

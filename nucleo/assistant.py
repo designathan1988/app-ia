@@ -47,7 +47,7 @@ class Assistant:
     def warm_up(self) -> None:
         """Load what the first request would otherwise wait for: the language models and the builder."""
         from .lang.interpret import understand_request as understand
-        from .lang.understand import World
+        from .lang.base import World
 
         doc = self.session.document()
         understand("insira um título na página", World.from_document(doc["document"], doc["selection"]))
@@ -146,7 +146,7 @@ class Assistant:
                 return Reply("codigo", a.text, a.kind != "nao_entendi")
         doc = self.session.document()
         from .lang.questions import answer as page_answer
-        from .lang.understand import World
+        from .lang.base import World
 
         q = page_answer(text, World.from_document(doc["document"], doc["selection"]), doc["document"],
                         self.session.dialog.last_reading)

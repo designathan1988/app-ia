@@ -418,6 +418,35 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
     `_placement`, `paraphrase`);
   - o motor novo é cerca de 7 vezes mais lento que o antigo (0,7 s contra 0,1 s por pedido na bateria).
 
+### Depois de C6 (2026-10-01)
+- **Rodada 8** (`experiments/rodada8.py`, uma terceira página, focada no que não deve ser feito):
+
+  | Medida | Novo | Antigo |
+  |---|---|---|
+  | Limpa | 27/9/7 | 20/17/6 |
+  | Depois das correções por classe | 37/6/0 | — |
+
+  As classes corrigidas foram:
+  - negação é proibição;
+  - pergunta com palavra interrogativa não é pedido;
+  - verbo leve não gera texto;
+  - quantidades;
+  - modelo de conteúdo do builder;
+  - coordenação distribuída;
+  - nomes entre línguas respeitam o tipo presente;
+  - o contexto nunca substitui um elemento dito;
+  - o atributo da cópula não inclui a oração;
+  - nome padrão só entre pares de nome padrão.
+- **Perguntas** refeitas sobre a forma lógica e a ancoragem nova.
+- **Ensino por definição** refeito sobre a forma lógica (`teaching.py`). O verbo de definição é classe fechada do
+  perfil, e as expressões regulares com palavras do português foram retiradas.
+- **Separação:** o que a aplicação usa está em `nucleo/lang/base.py` (34 definições).
+  - `understand.py`, o motor antigo, só é carregado pelos experimentos, como linha de base.
+  - A aplicação não o carrega mais.
+- **Ponte com o builder:** o impasse do `stderr` não lido foi corrigido, e a ponte é encerrada na saída.
+- **Velocidade:** cerca de 0,14 s por pedido (eram 1,1 s).
+- **Bateria M5:** 93,1%, 0 erros silenciosos (o antigo, 92,4%).
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

@@ -38,7 +38,7 @@ UNUSED = 0.5  # a word that grounds to nothing
 
 
 def _u():
-    from . import understand
+    from . import base as understand
 
     return understand
 
@@ -106,7 +106,7 @@ def _said_themes(p: lf.Predicate, args: list[Arg]) -> list[tuple[Arg, gr.Den]]:
 
 
 def _value_case(case: str) -> bool:
-    from .understand import FRAMES
+    from .base import FRAMES
 
     cw = lexicon.lemma_seq(case) if case else ()
     return not cw or cw[-1] in {fold(x) for x in FRAMES["valor_casos"]}
@@ -941,7 +941,7 @@ def _courtesy(p: lf.Predicate, tokens) -> bool:
 def _world_with(world, ctx: Context):
     """The page as the discourse leaves it: elements created by earlier clauses exist (as placeholders) and the
     salient element is the one a pronoun points to."""
-    from .understand import World
+    from .base import World
 
     nodes = dict(world.nodes)
     nodes.update(dict(ctx.created))
@@ -1264,12 +1264,16 @@ def understand_request(text: str, world, by: str = "usuario", lang: str | None =
     u = _u()
     lang = lang or langs.detect(text)
     with langs.use(lang):
-        tokens = u.analyse(text)
-        taught = u._definition(tokens, text, world, by)
+        from .teaching import definition
+
+        taught = definition(text, world, by)
         if taught is not None:
             taught.lang = lang
             return taught
-        pred = u._predicate(tokens)
+        analysis = alternatives.analyses(text)
+        tokens = analysis[0].tokens if analysis else []
+        preds = lf.build(tokens).predicates if tokens else []
+        pred = preds[0].head if preds else None
         if pred is not None and not u._in_frame(pred.lemma):
             definitions = learned_verbs()
             for cand in [pred.lemma] + u._regular_infinitives(pred.form):

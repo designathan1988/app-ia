@@ -42,7 +42,7 @@ class Den:
 
 # -- helpers --------------------------------------------------------------------------------------------------
 def _u():
-    from . import understand
+    from . import base as understand
 
     return understand
 
@@ -68,7 +68,7 @@ def _of_words() -> set:
 def _places(lang: str) -> dict:
     """Normalized place locutions -> relation: the profile's locutions without articles and without the final
     "de/of" (which introduces the anchor)."""
-    from .understand import FRAMES
+    from .base import FRAMES
 
     with langs.use(lang):
         of = {fold(langs.profile()["of"])}
@@ -386,7 +386,7 @@ def _chain(m: Mention) -> list:
 
 def properties(m: Mention, world) -> list[Den]:
     """Properties, attributes and fields the mention names, with the owner (a reference) when one is attached."""
-    from .understand import FRAMES
+    from .base import FRAMES
 
     out = []
     toks = _chain(m)

@@ -27,6 +27,7 @@ PROFILES = {
         "whole": {"inteiro", "inteira", "inteiros", "inteiras", "todo", "toda"},
         # the addressee: a clause whose subject is the listener is a directive, never information
         "addressee": {"você", "voce", "vocês", "voces", "tu", "senhor", "senhora"},
+        "means": {"significar", "significa", "quer dizer"},
         "numbers": {"dois": 2, "duas": 2, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6, "sete": 7, "oito": 8,
                     "nove": 9, "dez": 10},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
@@ -61,6 +62,7 @@ PROFILES = {
         "universal": {"all", "every", "each"},
         "whole": {"whole", "entire", "full"},
         "addressee": {"you"},
+        "means": {"mean", "means"},
         "numbers": {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
                     "ten": 10},
         "sides": {"antes": "top", "depois": "bottom"},
@@ -193,7 +195,7 @@ def frame_verbs(frame_id: str, lang: str) -> frozenset:
     """The verbs of an action frame in a language: Portuguese from frames.json; others from the dictionary's
     translations of those verbs (Wiktionary)."""
     from . import dictionary
-    from .understand import FRAMES
+    from .base import FRAMES
 
     frame = next(f for f in FRAMES["quadros"] if f["id"] == frame_id)
     if lang == "pt":

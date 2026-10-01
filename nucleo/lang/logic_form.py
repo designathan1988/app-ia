@@ -150,7 +150,7 @@ def mention(tok, kids) -> Mention:
 
 # -- predicates ---------------------------------------------------------------------------------------------------
 def _is_copula(t, prof) -> bool:
-    from .understand import COPULAS, morph_lemmas
+    from .base import COPULAS, morph_lemmas
 
     return t.lemma in COPULAS or any(c in COPULAS for c in morph_lemmas(t.form, "V"))
 
@@ -229,7 +229,7 @@ def _value_or_mention(tok, kids):
 # -- the sentence -------------------------------------------------------------------------------------------------
 def build(tokens) -> Sentence:
     """The logical form of an analysed sentence (tokens with heads and relations)."""
-    from .understand import MODALS
+    from .base import MODALS
 
     kids = _children(tokens)
     by_i = {t.i: t for t in tokens}

@@ -78,7 +78,7 @@ def direct(word: str) -> list[Meaning]:
         out.append(Meaning("valor", pair, 0.0))
     if word in command_verbs.table():
         out += [Meaning("comando", cv.command, 0.0) for cv in command_verbs.table()[word] if not cv.rest]
-    from .understand import FRAMES
+    from .base import FRAMES
 
     if any(word in f["verbos"] for f in FRAMES["quadros"]) or word in learned.classes() or word in learned.verbs():
         out.append(Meaning("verbo", word, 0.0))

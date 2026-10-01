@@ -2,7 +2,7 @@
 
 A question is recognized by its form (a question mark, or an interrogative word of the language: closed-class
 grammar in ``langs``). Its content is grounded by the same machinery as requests: the element it is about
-(``_reference``), the property (the lexicon, a property family, the concept graph), the type (lexicon or graph).
+over its logical form (``ground``: the element, the property with its owner, the type).
 
 Kinds of question, by what they ask:
 - **content**: what an element (or the page) has ("o que tem na seção Topo?", "what is in the section?");
@@ -106,7 +106,6 @@ def _nodes(doc: dict) -> dict:
 
 
 def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
-    from .understand import Piece, _pieces, _predicate, _reference, _span_match, analyse
 
     kind = _kind(text, lang)
     if kind == "why":
@@ -188,7 +187,7 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
         return AnswerText("value", _say(lang, f"{prop.label} de {_name(world, target)}: {value}.",
                                         f"The {prop.label.lower()} of {_name(world, target)} is {value}."))
     if family is not None and target is not None:
-        from .understand import _prior
+        from .base import _prior
         from .values import _builder_properties
 
         kind_, pid = family[0], family[1]
@@ -275,17 +274,4 @@ def _type_asked(tokens) -> str | None:
         hit = next((m for m in grounding.meanings(t.form, "N") if m.kind == "tipo" and m.cost <= 1.0), None)
         if hit is not None:
             return hit.target
-    return None
-
-
-def _family_asked(pieces):
-    from . import grounding
-    from .values import _builder_properties
-
-    types = _builder_properties()
-    for p in pieces:
-        for t in p.words:
-            fam = next((m.target for m in grounding.direct(t.form) if m.kind == "familia"), None)
-            if fam is not None:
-                return [pid for pid, info in types.items() if info.get("valueType") == fam]
     return None

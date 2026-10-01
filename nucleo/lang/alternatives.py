@@ -85,7 +85,7 @@ def _closed_word(word: str, lang: str) -> bool:
     (MorphoBr), or one of the profile's closed classes."""
     low = word.lower()
     prof = langs.profile(lang)
-    from .understand import FRAMES
+    from .base import FRAMES
 
     with langs.use(lang):
         cases = set(FRAMES["valor_casos"])  # (the language's value markers: "para", "como", "to", "as")
@@ -140,13 +140,13 @@ def _ancestors(heads: list[int], d: int) -> list[int]:
 
 # -- the alternatives -----------------------------------------------------------------------------------------
 def _models():
-    from .understand import _models as m
+    from .base import _models as m
 
     return m()
 
 
 def _parsed(words, tags):
-    from .understand import make_tokens
+    from .base import make_tokens
 
     _, parser, _, _ = _models()
     shown = [("VALOR" if is_literal(w) else w) for w in words]
@@ -233,7 +233,7 @@ def _attachment_variants(tokens, step: bool = False) -> list[tuple[list[int], li
 
 def analyses(text: str, limit: int = 200) -> list[Analysis]:
     """The greedy analysis first, then the alternatives in order of cost (number of edits)."""
-    from .understand import make_tokens
+    from .base import make_tokens
 
     tagger, parser, _, _ = _models()
     words = tokenize(text)
