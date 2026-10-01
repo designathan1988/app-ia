@@ -98,13 +98,29 @@ def _case_of(tok, kids) -> str:
 
 
 # -- mentions -----------------------------------------------------------------------------------------------------
+def _interrogative_words() -> set:
+    """The interrogative determiners of the current language ("quais", "quantos", "which", "how many")."""
+    from .questions import INTERROGATIVES
+
+    return {fold(w) for kind in ("what", "count") for w in INTERROGATIVES.get(langs.current(), {}).get(kind, ())}
+
+
 def mention(tok, kids) -> Mention:
     prof = langs.profile()
     words = _subtree(tok, kids)
     m = Mention(tok, words)
+    everything = {t.i: t for ts in kids.values() for t in ts}
     for c in kids.get(tok.i, []):
         rel = _base(c.deprel)
         low = fold(c.form.lower())
+        before = everything.get(c.i - 1)
+        if rel in ("det", "amod", "nummod") and c.i < tok.i and (
+                low in _interrogative_words() or before is not None and
+                fold(before.form.lower()) + " " + low in _interrogative_words()):
+            # ("quais títulos", "which elements", "how many paragraphs": the elements of that kind asked about,
+            # not new ones)
+            m.det = "interrogative"
+            continue
         if c.i > tok.i and c.upos in ("NOUN", "PROPN", "PRON") and any(
                 _base(g.deprel) == "cc" and g.i < c.i for g in kids.get(c.i, [])):
             rel = "conj"  # (a dependent with its own coordinating conjunction is a conjunct, whatever its label)

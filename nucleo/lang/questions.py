@@ -123,6 +123,17 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     from . import ground as gr
     from . import logic_form as lf
 
+    about_me = _about_me(text, lang)
+    if about_me == "did":
+        from .base import paraphrase
+
+        cons = getattr(last, "constraints", None)
+        what = paraphrase(cons, world) if cons else getattr(last, "paraphrase", None)  # (in the question's language)
+        return AnswerText("me", langs.msg("last_done", lang, what=what) if what else langs.msg("did_nothing", lang))
+    if about_me == "can":
+        from .interpret import capabilities
+
+        return AnswerText("me", capabilities(lang))
     analysis = alternatives.analyses(re.sub(r"\?+\s*$", "", text))
     if not analysis:
         return None
@@ -162,6 +173,17 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
         polar = _polar(text, world, nodes, lang)
         if polar is not None:
             return polar
+    if wh and kind in ("what", "count"):
+        # which elements, or how many, have a state ("quais títulos são vermelhos?", "how many buttons have a red
+        # background?"): the state the sentence states of its subject, checked element by element
+        found = _filter(text, world, nodes, lang)
+        if found is not None:
+            names = ", ".join(_name(world, n) for n in found[:8])
+            if kind == "count":
+                return AnswerText("count", _say(lang, f"{len(found)}" + (f": {names}." if found else "."),
+                                                f"{len(found)}" + (f": {names}." if found else ".")))
+            return AnswerText("which", _say(lang, f"{names}." if found else "Nenhum.",
+                                            f"{names}." if found else "None."))
     if kind == "count" or kind == "exist":
         typ = _type_asked(tokens)
         if typ is None:
@@ -236,12 +258,66 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
                                       f"{_name(world, container)} has: {items}."))
 
 
+def _about_me(text: str, lang: str) -> str | None:
+    """A question about the machine itself, its subject the addressee ("o que você sabe fazer?", "what can you do?",
+    "o que você fez?", "what did you do?"): "can" (what it can do) or "did" (what it did), else None."""
+    words = [fold(w) for w in re.findall(r"[\wÀ-ÿ']+", text.lower())]
+    if not any(w in {fold(x) for x in langs.profile()["addressee"]} for w in words):
+        return None
+    if lang == "en":
+        if "did" in words or "done" in words:
+            return "did"
+        return "can" if any(w in ("can", "do", "able") for w in words) else None
+    from .morph import analyses
+
+    for w in words:
+        for lemma, tags in analyses(w):
+            if lemma in ("fazer", "saber", "poder", "conseguir") and tags.startswith("V+"):
+                return "did" if "+PRF" in tags and lemma == "fazer" else "can"
+    return None
+
+
 def _has_wh(tokens, lang: str) -> bool:
     """Whether the question has an interrogative word asking for something ("qual", "o que", "what", "where"): a
     question without one asks yes or no."""
     words = " " + " ".join(fold(t.form.lower()) for t in tokens) + " "
     q = INTERROGATIVES[lang]
     return any(f" {fold(w)} " in words for kind in ("what", "count", "where", "why") for w in q[kind])
+
+
+def _filter(text: str, world, nodes: dict, lang: str):
+    """The elements of which the question's sentence states what it says (its reading by the request engine, one
+    constraint per candidate element), each checked against the document; None when it states nothing to check."""
+    from . import interpret
+
+    its = interpret.interpretations(re.sub(r"\?+\s*$", "", text), world)
+    if not its or its[0].cost > interpret.u_limit():
+        return None
+    best = its[0]
+    cons = list(best.constraints) + [c for f in best.facts for c in f.constraints]
+    if not cons or any(c["kind"] not in ("style", "command") or c.get("id") not in nodes for c in cons):
+        return None
+    if all(c["kind"] == "command" and "already" not in c for c in cons):
+        return None
+    by_node: dict = {}
+    for c in cons:
+        by_node.setdefault(c["id"], []).append(c)
+    out = []
+    for nid, cs in by_node.items():
+        ok = True
+        for c in cs:
+            if c["kind"] == "style":
+                # (a colour said bare is the text's or the box's, whichever the element has: "which elements are
+                # blue?" is the blue heading and the blue section)
+                props = [c["property"]] + (["color", "background-color"] if c["property"] in
+                                           ("color", "background-color") else [])
+                ok = ok and any(fold(str(_style(nodes, nid, q, (c["breakpoint"], c["state"])) or "").lower()) ==
+                                fold(str(c["value"]).lower()) for q in props)
+            else:
+                ok = ok and bool(c.get("already"))  # (a state a command switches: hidden, locked)
+        if ok:
+            out.append(nid)
+    return out
 
 
 def _polar(text: str, world, nodes: dict, lang: str) -> AnswerText | None:

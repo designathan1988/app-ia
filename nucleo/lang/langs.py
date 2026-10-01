@@ -33,6 +33,14 @@ PROFILES = {
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
         "field_value": ["para", "como", "por"],  # (the prepositions that give a new name or text: "renomeia X para Y")
+        "any_element": ["elemento", "elementos", "item", "itens", "componente", "componentes"],
+        "greetings": ["oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "e aí", "tudo bem", "tudo bom",
+                      "opa", "salve"],
+        "thanks": ["obrigado", "obrigada", "valeu", "brigado", "agradeço", "muito obrigado", "muito obrigada"],
+        "help": ["ajuda", "socorro", "me ajuda", "ajude", "comandos"],
+        # discourse connectives: they order or add the events of a text, they say nothing of the state
+        "connectives": ["por fim", "por último", "em seguida", "depois disso", "além disso", "finalmente", "então",
+                        "agora", "primeiro", "depois", "também", "logo após", "em primeiro lugar", "por favor"],
         # degree: comparison words and the verbs of changing an amount (closed class)
         "more": {"maior", "maiores", "aumentar", "ampliar", "crescer", "engrossar"},
         "less": {"menor", "menores", "menos", "diminuir", "reduzir", "encolher", "afinar"},
@@ -68,6 +76,13 @@ PROFILES = {
                     "ten": 10},
         "sides": {"antes": "top", "depois": "bottom"},
         "field_value": ["to", "as"],  # (the prepositions that give a new name or text: "rename X to Y")
+        "connectives": ["finally", "lastly", "then", "after that", "next", "also", "now", "first", "too",
+                        "and then", "afterwards", "please"],
+        "any_element": ["element", "elements", "item", "items", "component", "components"],
+        "greetings": ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "how are you",
+                      "what's up"],
+        "thanks": ["thanks", "thank you", "thx", "thanks a lot", "many thanks", "cheers"],
+        "help": ["help", "help me", "commands"],
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
         "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},
         "new": {"new", "another", "extra", "more", "additional"},
@@ -275,6 +290,12 @@ MESSAGES = {
         "confirm": "Não tenho certeza{why}: entendi «{what}». É isso? (sim/não)",
         "unknown_verb_guess": "{what} (não conheço «{verb}»; entendi pelo resto da frase)",
         "nothing_done": "Certo, nada foi feito.", "noted": "Anotado.", "welcome": "Por nada.",
+        "greet": "Olá! Diga o que quer mudar na página, ou pergunte algo sobre ela.",
+        "can_do": ("Edito a página pelo que você pedir, em português ou inglês: crio, apago, movo e renomeio "
+                   "elementos, mudo textos e estilos ({props} propriedades: cores, tamanhos, alinhamento, margens, "
+                   "fontes...) e uso os comandos do editor ({commands}). Respondo perguntas sobre a página (cor, "
+                   "texto, onde está, quantos tem, quais têm um estilo) e aprendo palavras novas («X significa Y»)."),
+        "did_nothing": "Ainda não fiz nada nesta conversa.", "last_done": "Fiz: {what}",
         "not_doing": "Certo, não faço isso.", "question_not_request": "Isso é uma pergunta, não um pedido de mudança.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
         "learned": "Aprendi: «{verb}» = «{body}».", "same_again": "O mesmo: {what}",
         "part_failed": "Nada foi feito: na parte «{part}»: {why}",
@@ -293,6 +314,13 @@ MESSAGES = {
         "confirm": "I am not sure{why}: I understood «{what}». Is that right? (yes/no)",
         "unknown_verb_guess": "{what} (I did not know «{verb}»; I understood it from the rest of the sentence)",
         "nothing_done": "OK, nothing was done.", "noted": "Noted.", "welcome": "You are welcome.",
+        "greet": "Hi! Tell me what to change on the page, or ask me about it.",
+        "can_do": ("I edit the page as you ask, in English or Portuguese: I create, delete, move and rename "
+                   "elements, change texts and styles ({props} properties: colours, sizes, alignment, margins, "
+                   "fonts...) and use the editor's commands ({commands}). I answer questions about the page (colour, "
+                   "text, where an element is, how many there are, which have a style) and learn new words "
+                   "(\"X means Y\")."),
+        "did_nothing": "I have not done anything in this conversation yet.", "last_done": "I did: {what}",
         "not_doing": "OK, I will not do that.", "question_not_request": "That is a question, not a change to make.", "no_plan": "I understood «{what}», but found no commands that do it.",
         "learned": "Learned: «{verb}» = «{body}».", "same_again": "The same: {what}",
         "part_failed": "Nothing was done: in the part «{part}»: {why}",

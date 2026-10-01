@@ -138,7 +138,12 @@ def ellipsis_target(text: str, world) -> str | None:
 
 
 def repeat_on(constraints: list, old_nodes: list, node: str) -> list:
-    out = copy.deepcopy(constraints)
+    """The last action's changes of state (styles, commands) on another element: "o mesmo no título" repeats how the
+    element was changed, not the creation of an element or the text it was given."""
+    out = copy.deepcopy([c for c in constraints if c["kind"] in ("style", "command")])
     for old in old_nodes:
         out = _replace(out, old, node)
+    for c in out:
+        if str(c.get("id", "")).startswith("$novo"):
+            c["id"] = node  # (a change made to the element the text created)
     return out

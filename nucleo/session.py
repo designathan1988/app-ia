@@ -102,7 +102,10 @@ class Session:
                     return a
         # an elliptical follow-up repeats the last action on another element: only an action on an element can be
         # repeated that way, and only on an element it did not already touch
-        if self.dialog.last_nodes and dialogue.is_ellipsis(text):
+        # (a text the engine understands by itself, "Agora coloca um parágrafo... Por fim, centraliza ele também.",
+        # is no ellipsis, whatever words like "agora" or "também" it has)
+        if self.dialog.last_nodes and dialogue.is_ellipsis(text) and \
+                (len(dialogue._words(text)) <= 8 or not self._understood(text)):
             with langs.use(langs.detect(text)):  # its words are matched in the language they were said in
                 node = dialogue.ellipsis_target(text, self._world())
             if node is not None and node not in self.dialog.last_nodes:
@@ -148,10 +151,10 @@ class Session:
     def _ask_one(self, text: str) -> Answer:
         world = self._world()
         u = understand(text, world)
-        if u.decision in ("aprendido", "fato", "cortesia", "negado"):
-            # learned, noted as information, only talk, or a prohibition: answered, nothing to change
-            msg = u.message if u.decision in ("aprendido", "negado") else langs.msg(
-                "noted" if u.decision == "fato" else "welcome", langs.detect(text))
+        if u.decision in ("aprendido", "fato", "cortesia", "negado", "ajuda"):
+            # learned, noted as information, only talk, help, or a prohibition: answered, nothing to change
+            msg = u.message if u.decision in ("aprendido", "negado", "ajuda") or u.decision == "cortesia" and \
+                u.message else langs.msg("noted" if u.decision == "fato" else "welcome", langs.detect(text))
             a = Answer(text, u.decision, msg, [], True)
             self.history.append(a)
             return a

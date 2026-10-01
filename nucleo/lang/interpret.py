@@ -975,6 +975,8 @@ def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
         t = by_i[i]
         if fold(t.form.lower()) in langs.profile()["new"] | langs.profile()["universal"]:
             continue
+        if fold(t.form.lower()) in _connectives():
+            continue  # ("centraliza ele também": a discourse word, nothing of the state)
         m = _meaningful(t) and not _discourse_adverb(t, p, tokens) or _shade(t, tokens)
         cost += MEANINGFUL_UNUSED if m else UNUSED
         left.append(t.form)
@@ -993,6 +995,50 @@ def _shade(t, tokens) -> bool:
             if color and compound_color(color, t.form, langs.current()):
                 return True
     return False
+
+
+def _conversation_act(text: str) -> str | None:
+    """A text that is only a greeting, a thanks or a call for help ("oi, tudo bem?", "valeu!", "thank you",
+    "ajuda"): the closed classes of the profile cover all of its words. Which one, or None."""
+    import re
+
+    low = " " + " ".join(re.findall(r"[\wÀ-ÿ']+", fold(text.lower()))) + " "
+    if not low.strip():
+        return None
+    prof = langs.profile()
+    found = None
+    for act, key in (("help", "help"), ("thanks", "thanks"), ("greet", "greetings")):
+        for phrase in sorted((fold(x) for x in prof.get(key, ())), key=len, reverse=True):
+            if f" {phrase} " in low:
+                low = low.replace(f" {phrase} ", " ")
+                found = found or act
+    rest = [w for w in low.split() if w not in _connectives() and w not in {fold(x) for x in prof["addressee"]}]
+    return found if found and not rest else None
+
+
+def capabilities(lang: str) -> str:
+    """What the machine can do, said from what it knows: the builder's properties and the commands of its catalog."""
+    from .command_verbs import table
+    from .values import _builder_properties
+
+    with langs.use(lang):
+        labels = sorted({cv.label for vs in table().values() for cv in vs if not cv.rest})
+    return langs.msg("can_do", lang, props=len(_builder_properties()), commands=", ".join(labels[:12]))
+
+
+def _connectives() -> set:
+    """The language's discourse connectives (closed class of the profile: "por fim", "também", "finally", "also")."""
+    return {fold(x) for x in langs.profile().get("connectives", ())}
+
+
+def _without_connective(sentence: str) -> str:
+    """A sentence without the connective it starts with ("Por fim, centraliza ele" -> "centraliza ele")."""
+    low = fold(sentence.lower())
+    for c in sorted(_connectives(), key=len, reverse=True):
+        if low.startswith(c) and (len(low) == len(c) or not low[len(c)].isalnum()):
+            rest = sentence[len(c):].lstrip(" ,;:")
+            return rest if rest else sentence
+    return sentence
 
 
 def _discourse_adverb(t, p, tokens) -> bool:
@@ -1155,7 +1201,9 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
         # words of the sentence that no predicate covers (an analysis that hung a phrase outside every clause)
         covered = set().union(*(_content_tokens(p) for p in s.predicates)) if s.predicates else set()
         for t in a.tokens:
-            if t.i in covered or t.upos == "PRON" or t.i in {q.head.i for q in s.predicates}:
+            if t.i in covered or t.upos == "PRON" or t.i in {q.head.i for q in s.predicates} or \
+                    t.upos in ("VERB", "AUX") and (t.lemma in _u().MODALS or fold(t.form.lower()) in _u().MODALS):
+                # (a modal, "deve dizer", "should be", is the act of the clause it governs: a wish, an obligation)
                 continue
             if t.upos in ("NOUN", "PROPN", "ADJ", "VERB", "ADV", "NUM", "X") or is_literal(t.form):
                 total += MEANINGFUL_UNUSED if _meaningful(t) else UNUSED
@@ -1281,11 +1329,17 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
     u = _u()
     lang = lang or langs.detect(text, _names(world))
     with langs.use(lang), alternatives.page_names(world):
+        act = _conversation_act(text)
+        if act is not None:
+            return u.Understanding(text, [], [], "cortesia" if act != "help" else "ajuda",
+                                   capabilities(lang) if act == "help" else
+                                   langs.msg("greet" if act == "greet" else "welcome", lang), lang)
         sentences = _sentences(text) or [text]
         ctx = ctx or Context()
         work = _world_with(world, Context())
         results = []
         for sent in sentences:
+            sent = _without_connective(sent)
             if _wh_question(sent, text, lang):
                 # "qual é a cor do botão?", "what color is the button?": information asked, nothing to change
                 results.append(u.Understanding(sent, [], [], "pergunta", langs.msg("question_not_request", lang),

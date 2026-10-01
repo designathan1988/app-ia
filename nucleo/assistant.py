@@ -33,6 +33,12 @@ class Reply:
     links: list = field(default_factory=list)  # [(title, url, source)]
 
 
+def _langs_use(text: str):
+    from .lang import langs
+
+    return langs.use(langs.detect(text))
+
+
 class Assistant:
     def __init__(self, builder: Builder, document: dict | None = None, doc_path: pathlib.Path | None = None,
                  out: pathlib.Path = pathlib.Path("site"), code_root: str | None = None) -> None:
@@ -133,6 +139,13 @@ class Assistant:
                          links=[(h.title, h.url, h.source) for h in hits[:12]])
         if " entidade " in f" {text.lower()} ":
             return self._project(text)
+        # talk ("oi, tudo bem?", "valeu!", "ajuda") is answered as such, before anything is looked up
+        from .lang.interpret import _conversation_act
+
+        with _langs_use(text):
+            if _conversation_act(text) is not None:
+                a = self.session.ask(text)
+                return Reply(a.decision, a.message, a.ok, a.commands)
         # a question about the page is answered from the document (it grounds in the page's elements); one that does
         # not is tried on the project's code (whose index is built once, ~20 s, so only when it is needed)
         doc = self.session.document()

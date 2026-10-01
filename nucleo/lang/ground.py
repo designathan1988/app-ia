@@ -350,6 +350,18 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
         return out
     if m.new:
         return []  # something said to be new has no referent
+    any_element = {fold(x) for x in prof.get("any_element", ())}
+    if fold(lexicon.lemma_of(m.head.form)) in any_element or fold(m.head.form.lower()) in any_element:
+        # "qual elemento", "which elements": any element of the page (not the page itself), restricted below by the
+        # phrases attached to it like any other
+        m_words = {m.head.i} | {t.i for t in m.words if fold(t.form.lower()) in prof["articles"]}
+        cands = [n for n, v in world.nodes.items() if v.get("parent") is not None]
+        for case, a in m.attached:
+            sub = references(a, world)
+            if sub:
+                cands = [n for n in cands if any(_descends(n, x, world) for x in sub[0].data)] or cands
+        return [Den("ref", tuple(cands), COST["referente_por_tipo"], frozenset(m_words), (f"{len(cands)} elementos",),
+                    ambiguous=len(cands) > 1)]
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
     # (an element with its type's default name is not named by the type word itself, "o título"; it is when the name
     # is said besides the type word, "a página Page")
@@ -523,8 +535,9 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     if len(cands) == 1:
         return [Den("ref", tuple(cands), cost + (0.0 if names else COST["referente_por_tipo"]), frozenset(explained),
                     notes)]
-    if m.det == "universal":
-        explained |= {t.i for t in m.words if fold(t.form.lower()) in prof["universal"]}
+    if m.det in ("universal", "interrogative"):
+        explained |= {t.i for t in m.words if fold(t.form.lower()) in prof["universal"] or t.i < m.head.i and
+                      t.deprel.split(":")[0] in ("det", "amod", "advmod")}
         return [Den("ref", tuple(cands), cost + COST["referente_por_tipo"], frozenset(explained), notes)]
     sel = [n for n in cands if n in world.selection]
     if len(sel) == 1:
@@ -875,7 +888,7 @@ def place(case: str, m: Mention, world) -> list[Den]:
 def kinds(m: Mention) -> list[Den]:
     """An element type to create: an indefinite phrase or one said new."""
     if m.det not in ("indefinite", "") and not m.new:
-        return []
+        return []  # (a definite, universal or interrogative phrase is about elements that exist)
     out = []
     prof = langs.profile()
     numbers = langs.profile().get("numbers", {})
