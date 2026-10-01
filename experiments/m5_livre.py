@@ -54,7 +54,8 @@ CASES = [
     ("mude a fonte do título para 32px", S("font-size", "32px", "t")),
     ("aumente o tamanho da fonte do parágrafo para 20px", S("font-size", "20px", "p")),
     ("defina a margem superior da seção como 24px", S("margin-top", "24px", "s")),
-    ("coloque 16px de padding na seção", "perguntar"),
+    # (CSS: "padding: 16px" is the four sides; this was "perguntar" while the engine could not expand a shorthand)
+    ("coloque 16px de padding na seção", [S(f"padding-{x}", "16px", "s") for x in ("top", "right", "bottom", "left")]),
     ("deixe a largura da imagem em 300px", S("width", "300px", "i")),
     # commands
     ("duplique o botão", C("element.duplicate", "b")),
@@ -272,7 +273,7 @@ FIFTH = [
     ("o título tá muito pequeno, coloca 36px", S("font-size", "36px", "t")),
     ("muda a cor das letras do botão para amarelo", S("color", "yellow", "b")),
     ("arruma o alinhamento do título pra esquerda", S("text-align", "left", "t")),
-    ("deixa o fundo do parágrafo cinza claro", "perguntar"),
+    ("deixa o fundo do parágrafo cinza claro", S("background-color", "lightgray", "p")),
     ("bota negrito no parágrafo", S("font-weight", "bold", "p")),
     ("coloca itálico no título", S("font-style", "italic", "t")),
     ("deleta o título", {"kind": "removed", "id": "t"}),
@@ -360,6 +361,10 @@ def run(verbose: bool = False, cases=None) -> dict:
         u = (interpret_understand if NOVO else understand)(text, world)
         if expected == "perguntar":
             outcome = "certo" if u.decision != "executar" else "ERRADO"
+        elif u.decision == "executar" and isinstance(expected, list):
+            # (several changes expected: all of them, in order)
+            got = u.best.constraints
+            outcome = "certo" if len(got) == len(expected) and all(map(matches, got, expected)) else "ERRADO"
         elif u.decision == "executar":
             outcome = "certo" if matches(u.best.constraints[0], expected) else "ERRADO"
         else:

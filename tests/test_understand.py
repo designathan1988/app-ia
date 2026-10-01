@@ -213,8 +213,9 @@ def test_comparatives_compute_from_the_current_value():
     assert u.decision == "executar" and u.best.constraints[0]["value"] == "40px"
     u = understand("diminua a fonte do título Title", world)
     assert u.decision == "executar" and u.best.constraints[0]["value"] == "26px"
-    # no current value: nothing to compute from, so it asks
-    assert understand("aumente a fonte do parágrafo Intro", world).decision == "perguntar"
+    # no value set: the value the page renders with, from the builder's base stylesheet (16px body text)
+    u = understand("aumente a fonte do parágrafo Intro", world)
+    assert u.decision == "executar" and u.best.constraints[0]["value"] == "20px"
 
 
 def test_participle_of_a_command_verb_is_its_state():

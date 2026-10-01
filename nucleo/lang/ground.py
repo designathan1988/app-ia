@@ -168,12 +168,48 @@ def _phrase_names(m: Mention, world) -> list:
     return out
 
 
+SENSES = 5  # the senses of a word compared across the languages (a common word has several: "book", "livro")
+
+
 @lru_cache(maxsize=20_000)
 def _word_concepts(word: str, lang: str) -> frozenset:
     from . import concepts
 
     with langs.use(lang):
-        return frozenset(c for c, cost in concepts.concepts_of(lexicon.lemma_of(word), lang)[:3])
+        # (a name is a noun: its noun senses first, so that a verb's senses do not crowd them out, "cover")
+        lemma = lexicon.lemma_of(word)
+        return frozenset(c for c, cost in concepts.concepts_of(lemma, lang, "n")[:SENSES]) |             frozenset(c for c, cost in concepts.concepts_of(lemma, lang)[:3])
+
+
+def _plural(t) -> bool:
+    """Whether a noun is in the plural (its lemma is another form: "títulos", "books")."""
+    return fold(lexicon.lemma_of(t.form)) != fold(t.form.lower()) and t.upos == "NOUN"
+
+
+def _name_class(m: Mention, world) -> list:
+    """The elements whose multiword names begin with the mention's head noun, in this language or (through the
+    wordnets' shared concepts) the other one: «Livro Um», «Livro Dois» for "livro", "livros", "books"."""
+    if m.head.upos not in ("NOUN",) or is_literal(m.head.form):
+        return []
+    lang = langs.current()
+    head = fold(lexicon.lemma_of(m.head.form))
+    mine = _word_concepts(m.head.form, lang)
+    groups: dict = {}  # the first word of the multiword names -> the elements so named
+    for nid, n in world.nodes.items():
+        words = (n.get("name") or "").split()
+        if len(words) >= 2:
+            groups.setdefault(fold(words[0].lower()), []).append(nid)
+    out = []
+    for first, nids in groups.items():
+        if len(nids) < 2:
+            continue  # (a class is several elements sharing the word)
+        same = fold(lexicon.lemma_of(first)) == head
+        if not same:
+            with langs.use("pt"):
+                same = fold(lexicon.lemma_of(first)) == head
+        if same or mine & (_word_concepts(first, "pt") | _word_concepts(first, "en")):
+            out += nids
+    return out
 
 
 def _cross_named(m: Mention, world) -> list:
@@ -185,7 +221,7 @@ def _cross_named(m: Mention, world) -> list:
     lang = langs.current()
     other = "pt" if lang == "en" else "en"
     toks = [t for t in m.words if t.upos in ("NOUN", "PROPN", "ADJ") and not is_literal(t.form)]
-    mine = {t.i: {c for c, cost in concepts.concepts_of(lexicon.lemma_of(t.form), lang)[:3]} for t in toks}
+    mine = {t.i: set(_word_concepts(t.form, lang)) for t in toks}
     with langs.use(other):
         stop = set(langs.profile(other)["articles"]) | {fold(langs.profile(other)["of"])}
     out = []
@@ -300,9 +336,14 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     if phrase:
         names = [nid for nid, _ in phrase]
     types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
-    if not phrase and not names:
+    if not phrase and not names and not types and (m.ordinal is not None or m.det == "universal") and \
+            _name_class(m, world):
+        pass  # (an ordinal or "every" picks among things of a kind: "the second book" is of the books, «Livro Um»,
+        # «Livro Dois», not the one element a name in the other language may mean)
+    elif not phrase and not names and not (types and (m.det == "universal" or _plural(m.head))):
         # a name said in the other language; when the word is also a type word, the element must be of that type
-        # ("header" names no footer, whatever concept the two words share)
+        # ("header" names no footer, whatever concept the two words share). (A plural or "todos" phrase is about a
+        # set: "todos os títulos" are the headings, not the one named «Title».)
         present = {v["type"] for v in world.nodes.values()}
         type_ids = {ty for ty, _, _ in types} & present  # (a type the page has: its elements are what the word means)
         cross = [x for x in _cross_named(m, world) if not type_ids or world.nodes[x[0]]["type"] in type_ids]
@@ -360,7 +401,13 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
                                 sub[0].ambiguous)]
         return []
     else:
-        return []
+        cands = _name_class(m, world)
+        if not cands:
+            return []
+        # a common noun that is the word the names of several elements share ("o segundo livro", "how many books"
+        # for «Livro Um», «Livro Dois»): those elements
+        cost = COST["referente_por_tipo"]
+        explained |= {m.head.i}
     # attached phrases restrict by containment: "o título do cartão", "the image in the header"
     for case, a in m.attached:
         if not restrict:
@@ -370,6 +417,15 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
             continue
         anchors = set(sub[0].data)
         inside = [n for n in cands if any(n == x or _descends(n, x, world) for x in anchors)]
+        if not inside and names and types:
+            # the element a name in the other language gave is not there ("o título do CardA": «Title» is not in
+            # CardA): the elements of the type said inside it
+            kinds = {ty for ty, _, _ in types}
+            inside = [n for n, v in world.nodes.items() if v["type"] in kinds and
+                      any(_descends(n, x, world) for x in anchors)]
+            if inside:
+                names, cost = [], min(c for _, c, _ in types)
+                explained |= set().union(*(ws for _, _, ws in types))
         if inside:
             cands = inside
             explained |= set(sub[0].words) | {t.i for t in a.words if t.upos == "ADP"}
@@ -516,6 +572,15 @@ def values(m: Mention) -> list[Den]:
     attached = {t.i for _, a in m.attached for t in a.words}
     for t in m.words:
         if is_literal(t.form) and t.i not in attached:
+            head = next((x for x in m.words if x.i == t.head), None)
+            if t.form.isdigit() and head is not None and head.form[:1].isupper() and head.i > 1 and                     not is_literal(head.form):
+                # a number after a name ("Livro 3", "Capa 2", "Book 3"): the name with its number, as said
+                phrase = [x for x in m.words if x.i not in attached and x.upos not in ("DET", "ADP", "PUNCT", "PART")
+                          and x.deprel.split(":")[0] not in ("case", "mark", "det", "cc", "punct")]
+                out.append(Den("lit", " ".join(literal_value(x.form) for x in phrase), 0.25,
+                               frozenset(x.i for x in phrase)))
+                out.append(Den("lit", literal_value(t.form), 1.0, frozenset({t.i})))
+                continue
             out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
     # (a capitalised word inside the sentence is a name, whatever category the tagger gave it: "para Comprar")
     words = [t for t in content if (t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM") or literal_value(t.form) in m.names)
@@ -554,6 +619,22 @@ def values(m: Mention) -> list[Den]:
         if low in prof["more"] or low in prof["less"]:
             out.append(Den("cmp", 1 if low in prof["more"] else -1, 0.0, frozenset({t.i})))
             content.remove(t)
+    # a color and its shade said apart ("azul claro", "light blue"): one named color
+    from .values import color_properties, compound_color, named_colors
+
+    shaded = set()
+    for t in content:
+        pairs = ix.get(fold(lexicon.lemma_of(t.form)), []) or ix.get(fold(t.form.lower()), [])
+        color = next((v for _, v in pairs if v in named_colors()), None)
+        if color is None:
+            continue
+        for x in m.words:
+            if abs(x.i - t.i) == 1 and x.i not in shaded and not is_literal(x.form) and x.upos in ("ADJ", "ADV", "NOUN"):
+                named = compound_color(color, x.form, langs.current())
+                if named:
+                    out.append(Den("val", tuple((q, named) for q in color_properties()), 0.0, frozenset({t.i, x.i})))
+                    shaded |= {t.i, x.i}
+    content = [t for t in content if t.i not in shaded]
     for t in content:
         if is_literal(t.form):
             continue
@@ -708,6 +789,10 @@ def meaningful(t) -> bool:
 
     if is_literal(t.form) or place_relation((fold(t.form.lower()),)):
         return True  # (a place word, "depois", "below", is the grammar of places)
+    if t.form[:1].isupper() and t.i > 1:
+        return True  # (a name said inside the sentence, "chama ele de Endereço": information a reading must use)
+    if t.upos in ("VERB", "AUX") and _u()._in_frame(t.lemma):
+        return True  # (a verb of a known frame, "chamar" = to name: leaving it out leaves out what it asks)
     if grounding.direct(t.form) or lexicon.match((lexicon.lemma_of(t.form),), KINDS_LABELLED) or \
             value_index().get(fold(lexicon.lemma_of(t.form))):
         return True

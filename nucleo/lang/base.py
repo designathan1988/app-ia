@@ -293,6 +293,52 @@ def _form_controls() -> frozenset:
     return frozenset(e["id"] for e in elements if e.get("tag") in tags)
 
 
+@lru_cache(maxsize=1)
+def _base_rules() -> list:
+    """The builder's base stylesheet (``src/core/render/base.ts``: every page starts from it, in the canvas and in
+    the export) as (selectors, declarations) pairs."""
+    from ..builder.client import DEFAULT_BUILDER
+
+    src = pathlib.Path(DEFAULT_BUILDER) / "src" / "core" / "render" / "base.ts"
+    if not src.exists():
+        return []
+    text = src.read_text(encoding="utf-8")
+    css = text[text.find("`") + 1:text.rfind("`")]
+    out = []
+    for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        sel = sel.strip()
+        inner = re.fullmatch(r":where\((.*)\)", sel)
+        tags = [x.strip() for x in (inner.group(1) if inner else sel).split(",")]
+        decls = dict((k.strip(), v.strip()) for k, v in (d.split(":", 1) for d in body.split(";") if ":" in d))
+        out.append((tags, decls))
+    return out
+
+
+def default_style(node_type: str | None, prop: str) -> str | None:
+    """The value a property has on an element nobody styled: the builder's base stylesheet for the element's tag,
+    else (for an inherited property, W3C) the page body's; rem and em resolved against the body's font size."""
+    from .values import _w3c_properties
+
+    _, _ = _property_facts()
+    import json as _json
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    elements = _json.loads((pathlib.Path(DEFAULT_BUILDER) / "manifest" / "elements.json").read_text(encoding="utf-8"))
+    tag = next((e.get("tag") for e in elements["elements"] if e["id"] == node_type), None)
+    rules = _base_rules()
+    body = next((d.get("font-size") for tags, d in rules if "body" in tags and "font-size" in d), "16px")
+    root_px = float(re.match(r"[\d.]+", body).group()) if re.match(r"[\d.]+px", body) else 16.0
+    value = next((d[prop] for tags, d in rules if tag in tags and prop in d), None)
+    if value is None and (_w3c_properties().get(prop) or {}).get("inherited") == "yes":
+        value = next((d[prop] for tags, d in rules if "body" in tags and prop in d), None)
+    m = re.fullmatch(r"(-?[\d.]+)(rem|em)", value or "")
+    if m:
+        px = float(m.group(1)) * root_px
+        value = f"{int(px) if px == int(px) else round(px, 2)}px"
+    return value
+
+
 def _prior(prop: str, node_type: str | None) -> float:
     """How unlikely a property is as the meaning for this element: the builder shows essential properties first;
     a property that does not apply to the element's content (a text property on a section) is unlikely; and on a

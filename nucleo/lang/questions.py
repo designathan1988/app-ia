@@ -87,7 +87,7 @@ def answer(text: str, world, doc: dict, last=None) -> AnswerText | None:
     """The answer to a question about the page, or None when the text is not such a question."""
     from . import alternatives
 
-    lang = langs.detect(text)
+    lang = langs.detect(text, [n.get("name") or "" for n in world.nodes.values()])
     with langs.use(lang), alternatives.page_names(world):
         if not is_question(text, lang):
             return None
@@ -165,7 +165,16 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     if kind == "count" or kind == "exist":
         typ = _type_asked(tokens)
         if typ is None:
-            return None
+            # things of a kind named by the word their names share ("quantos livros tem?": «Livro Um», «Livro Dois»)
+            group = next((g for m in mentions for g in [gr._name_class(m, world)] if g), None)
+            if group is None:
+                return None
+            word = next(m.head.form for m in mentions if gr._name_class(m, world))
+            names = ", ".join(f"«{world.nodes[n]['name']}»" for n in group[:6])
+            if kind == "count":
+                return AnswerText("count", _say(lang, f"Há {len(group)} {word}: {names}.",
+                                                f"There are {len(group)} {word}: {names}."))
+            return AnswerText("exist", _say(lang, f"Sim: {names}.", f"Yes: {names}."))
         found = [n for n, v in world.nodes.items() if v["type"] == typ]
         label = _label("tipo", typ).lower()
         if kind == "count":

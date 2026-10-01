@@ -131,6 +131,20 @@ def reachable(prop: str) -> bool:
     return not any(lh in builder for lh in w3c.get("longhands") or [])
 
 
+def expansion(prop: str) -> list[str]:
+    """The builder's longhands a CSS shorthand said with one value sets, all of them ("padding: 12px" is the four
+    sides, W3C): when the builder has every longhand and they take the same kind of value; else none."""
+    builder = _builder_properties()
+    if prop in builder:
+        return []
+    longhands = (_w3c_properties().get(prop) or {}).get("longhands") or []
+    if not longhands or not all(lh in builder for lh in longhands):
+        return []
+    if len({builder[lh].get("valueType") for lh in longhands}) != 1:
+        return []
+    return list(longhands)
+
+
 def literal_kinds(prop: str) -> frozenset:
     return _all_literal_kinds().get(prop, frozenset())
 
@@ -147,6 +161,27 @@ def _builder_properties() -> dict[str, dict]:
 
     path = pathlib.Path(DEFAULT_BUILDER) / "manifest" / "properties.json"
     return {p["id"]: p for p in json.loads(path.read_text(encoding="utf-8"))["properties"]}
+
+
+def compound_color(color: str, modifier: str, lang: str) -> str | None:
+    """A named color said in two words, a color and a shade ("azul claro", "light blue", "verde escuro"): the CSS
+    named color the shade's English word forms with it ("lightblue", "darkgreen"). The shade's English words come
+    from the wordnets' shared concepts; among several, the one that forms the most named colors (the productive
+    prefix of the CSS color names: "light" before "pale")."""
+    from . import concepts
+
+    names = named_colors()
+    if lang == "en":
+        words = [(modifier.lower(), 0.0)]
+    else:
+        words = [(w.lower(), cost) for c, cost in concepts.concepts_of(modifier.lower(), lang, "a")[:6]
+                 for w in concepts.words_of(c, "en")]
+    found = [(w, cost) for w, cost in words if w.isalpha() and w + color in names]
+    if not found:
+        return None
+    productive = lambda w: sum(1 for n in names if n.startswith(w))  # noqa: E731
+    w, _ = max(found, key=lambda x: (productive(x[0]), -x[1]))
+    return w + color
 
 
 def color_properties() -> list[str]:

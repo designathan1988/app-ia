@@ -177,9 +177,17 @@ def predicate(tok, kids, tokens, act: str = "request") -> Predicate:
         rel = _base(c.deprel)
         role = ROLE.get(rel, "obl")
         low = fold(c.form.lower())
+        if rel == "nsubj" and act == "request" and c.i > tok.i and c.upos == "PRON" and low in prof["pronouns"] and \
+                not any(_base(x.deprel) == "obj" for x in deps):
+            # a personal pronoun after the verb of a request is its object (spoken Portuguese: "chama ele de X",
+            # "deixa ela azul"); the subject of an imperative is the addressee
+            rel = role = "obj"
         if rel in ("advmod",) and low in ("nao", "not", "never", "nunca", "n't"):
             p.negated = True
             continue
+        if rel in ("advcl", "xcomp", "ccomp", "parataxis") and c.upos == "VERB" and c.i > tok.i and \
+                any(_base(x.deprel) == "cc" and x.i < c.i for x in kids.get(c.i, [])):
+            rel = "conj"  # (a verb with its own coordinating conjunction is a coordinated clause: "e depois apaga")
         if rel == "conj" and c.upos in ("VERB", "AUX") or rel == "conj" and _base(c.deprel) == "conj" and \
                 any(_base(x.deprel) in ("obj", "cop") for x in kids.get(c.i, [])):
             p.conj.append(predicate(c, kids, tokens, act))

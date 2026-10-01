@@ -126,10 +126,15 @@ def _english_words() -> set:
     return {r[0] for r in con.execute("SELECT DISTINCT word FROM lex WHERE lang = 'en'")}
 
 
-def detect(text: str) -> str:
+def detect(text: str, names=()) -> str:
     """The language of a request, by which lexicon knows more of its words (MorphoBr for Portuguese, the English
-    wordnet plus English function words for English). Portuguese when unsure."""
+    wordnet plus English function words for English). Portuguese when unsure. The names of the page's elements
+    (`names`) and what is quoted are no evidence: "center the Lançamentos do mês heading" is English."""
     from .morph import analyses
+
+    text = re.sub(r'"[^"]*"|“[^”]*”', " ", text)  # (not '...': an apostrophe would be read as a quote)
+    for name in sorted({n for n in names if n and n.strip()}, key=len, reverse=True):
+        text = re.sub(r"(?<![\wÀ-ÿ])" + re.escape(name) + r"(?![\wÀ-ÿ])", " ", text, flags=re.IGNORECASE)
 
     # (a name is no evidence of the language: "Please center the Café Aurora heading" is English; names are the
     # capitalised words not starting a sentence)

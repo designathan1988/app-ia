@@ -152,7 +152,8 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
     topic = [(None, gr.Den("prop", ctx.topic_prop + (None,), CONTEXT_COST, frozenset(), ("pelo contexto",)))] \
         if ctx is not None and ctx.topic_prop and not any(a.of("prop") for a in args) else []
     props = topic + [(a, d) for a in args for d in a.of("prop")] + \
-        [(a, d) for a in args for d in a.of("field") if d.data[1] == "text" and d.data[2] is not None] + \
+        [(a, d) for a in args for d in a.of("field") if d.data[1] == "text" and
+         (d.data[2] is not None or a.role in ("obl", "attr", "result"))] + \
         _surface_labels(args, tokens, world) + [(None, None)]
     themes = _themes(p, args, ctx)
     places = [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
@@ -211,7 +212,12 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                     options.append((prop, value, u._prior(prop, ntype)))
             elif v.kind in ("lit", "measure") and said is not None:
                 lit = v_lit if v.kind == "measure" else v.data
-                options += _literal_options(said, lit, ntype, sided=bool(_side_words(args, va, ta, world)))
+                sides_ = langs.profile().get("sides", {})
+                # (a side said anywhere in the clause, "padding below the title" however it was parsed: not all sides)
+                sided_target = t.kind == "place" and t.data[0] in sides_ or                     any(gr.place_relation((fold(x.form.lower()),)) in sides_ and not _grammatical_use(x, tokens)
+                        for x in tokens)
+                options += _literal_options(said, lit, ntype,
+                                            sided=bool(_side_words(args, va, ta, world)) or sided_target)
             elif v.kind == "cmp":
                 options += _comparative_options(said, ntype)
             if ev.props and any(q in ev.props for q, _, _ in options):
@@ -219,6 +225,13 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 # the element ("align the image to the right": its alignment, though an image is no text)
                 options = [(q, val, min(c, 1.0)) for q, val, c in options if q in ev.props]
             side_words = _side_words(args, va, ta, world)
+            if side_words is None and v.kind in ("lit", "measure"):
+                # (a side word anywhere in the clause, however the analysis attached it: "padding below the title")
+                sides_ = langs.profile().get("sides", {})
+                x = next((x for x in tokens if gr.place_relation((fold(x.form.lower()),)) in sides_ and
+                          x.i not in v.words and not _grammatical_use(x, tokens)), None)
+                if x is not None:
+                    side_words = (sides_[gr.place_relation((fold(x.form.lower()),))], {x.i})
             if side_words and len({q for q, _, _ in options}) > 1:
                 # a side said ("em cima do botão", "on top"): the property of that side
                 sided = [o for o in options if _label_has(o[0], side_words[0])]
@@ -236,7 +249,9 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
             if said is not None and said[0] == "atributo":
                 options = [o for o in options if _attribute_ok(o[0], ntype, o[1])]
             else:
-                options = [o for o in options if reachable(o[0])]
+                from .values import expansion
+
+                options = [o for o in options if reachable(o[0]) or expansion(o[0])]
             if pd is not None and pd.kind == "field" and pd.data[1] == "text":
                 # the text of an element said ("o texto do botão branco"): a property of text
                 options = [o for o in options if u._property_facts()[0].get(o[0], ("always",))[0] == "text"]
@@ -256,8 +271,12 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 ask = None
                 if v.kind == "cmp":
                     value, ask = _scaled(world, nodes[0], prop, v.data)
-                cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
-                         "value": u._as_keyword(value, prop)} for n in nodes]
+                    if said is None and ntype in u._form_controls():
+                        ask = (nodes[0], prop)  # (a control is a box with text: bigger is its text or its box)
+                from .values import expansion
+
+                cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": q,
+                         "value": u._as_keyword(value, q)} for n in nodes for q in (expansion(prop) or [prop])]
                 if said is not None and said[0] == "atributo":
                     # an HTML attribute said ("o id do parágrafo como 'note'"): the element's attributes
                     cons = [{"kind": "field", "id": n, "field": "attributes", "value": {prop: value}} for n in nodes]
@@ -280,8 +299,8 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 if va is not None:
                     for c2 in va.mention.conj:
                         for v2 in gr.values(c2):
-                            if v2.kind != "val":
-                                continue
+                            if v2.kind != "val" or v2.words & explained:
+                                continue  # (a word already in the value said is not another value: "azul claro")
                             opts2 = [(q, val, u._prior(q, ntype)) for q, val in v2.data]
                             q, val, _ = min(opts2, key=lambda o: o[2])
                             cons += [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": q,
@@ -340,6 +359,9 @@ def _scaled(world, node, prop, direction):
     import re
 
     current = ((world.nodes[node].get("styles") or {}).get(world.layer[0]) or {}).get(world.layer[1], {}).get(prop)
+    if current is None:
+        # nobody set it: the value the page renders with (the builder's base stylesheet)
+        current = _u().default_style(world.nodes[node]["type"], prop)
     m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(px|rem|em|%)", str(current or ""))
     if m is None:
         return None, (node, prop)
@@ -549,6 +571,13 @@ def _literal_options(said, lit, ntype, sided: bool = False) -> list:
         longhands = [q for q in (_w3c_properties().get(pid, {}).get("longhands") or []) if q in builder]
         if longhands:
             kind, pid = "lista", tuple(longhands)
+    elif kind == "propriedade" and pid not in builder:
+        # a shorthand with no side said ("12px of padding"): every longhand, as CSS defines the shorthand
+        from .values import expansion
+
+        whole = expansion(pid)
+        if whole and all(_fits(q, lit) for q in whole):
+            return [(pid, lit, min(u._prior(q, ntype) for q in whole))]
     if kind == "lista":
         return [(q, lit, u._prior(q, ntype)) for q in pid if _fits(q, lit)]
     if kind == "familia":
@@ -823,6 +852,12 @@ def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
     lits = [(a, d if not _css_form(d.data) else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes))
             for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content", "adv")
             and (a.role not in ("obl", "adv") or a.case and _value_case(a.case))]
+    # (a literal made of the name of an element of the page and other words, "Intro Lead": the name refers to the
+    # element; read inside a text it costs, as in a style value)
+    names = {(n.get("name") or "").lower() for n in world.nodes.values()} - {""}
+    lits = [(a, d if not (isinstance(d.data, str) and len(d.data.split()) > 1 and
+                          any(w.lower() in names for w in d.data.split()) and d.data.lower() not in names)
+             else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes)) for a, d in lits]
     # a field said with its owner ("o texto do botão", "the button text", "o nome da foto")
     for a in args:
         for f in a.of("field"):
@@ -905,10 +940,24 @@ def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
         t = by_i[i]
         if fold(t.form.lower()) in langs.profile()["new"] | langs.profile()["universal"]:
             continue
-        m = _meaningful(t) and not _discourse_adverb(t, p, tokens)
+        m = _meaningful(t) and not _discourse_adverb(t, p, tokens) or _shade(t, tokens)
         cost += MEANINGFUL_UNUSED if m else UNUSED
         left.append(t.form)
     return cost, left
+
+
+def _shade(t, tokens) -> bool:
+    """A word that, with the color word next to it, names one color ("dark" in "dark green", "claro" in "azul
+    claro"): it means something, and a reading that leaves it out says another color."""
+    from .values import compound_color, index, named_colors
+
+    for x in tokens:
+        if abs(x.i - t.i) == 1 and not is_literal(x.form):
+            pairs = index().get(fold(lexicon.lemma_of(x.form)), []) or index().get(fold(x.form.lower()), [])
+            color = next((v for _, v in pairs if v in named_colors()), None)
+            if color and compound_color(color, t.form, langs.current()):
+                return True
+    return False
 
 
 def _discourse_adverb(t, p, tokens) -> bool:
@@ -944,12 +993,16 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
                 c.cost += 0.5
                 c.explained |= {p.head.i}
                 cands.append(c)
+    from .values import expansion
+
     spans = _label_spans(tokens)
     for c in cands:
         for ids, ws in spans:
             props = [k.get("property") for k in c.constraints] + ([c.ask_value[1]] if c.ask_value else [])
             fields = [k.get("field") for k in c.constraints if k.get("kind") == "field"]
-            if c.explained & ws and not fields and not any(q in ids or _label_contains(q, ids) for q in props if q):
+            expanded = any(expansion(k.get("property") or "") for k in c.constraints) or                 len({q for q in props if q}) > 1 and c.state == "style" and                 any(q not in ids and not _label_contains(q, ids) for q in props if q)
+            if c.explained & ws and not fields and (expanded or
+                                                    not any(q in ids or _label_contains(q, ids) for q in props if q)):
                 c.cost += LABEL_SPLIT
                 c.notes.append("rótulo partido")
                 c.parts["rotulo_partido"] = LABEL_SPLIT
@@ -983,7 +1036,7 @@ def _courtesy(p: lf.Predicate, tokens) -> bool:
     ev = gr.verb_evidence(p, tokens)
     # (a value reached only through a synonym, "valer" ~ "anular": none, is no specific meaning of the verb)
     # (a command reached far through the concept graph, "obrigado" ~ duplicar at 2.0, is no meaning of the word)
-    specific = ev.pairs and ev.kinds.get("style", 9.0) < 1.0 or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
+    specific = ev.pairs and ev.kinds.get("style", 9.0) < 1.0 or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command", "field:name", "field:text"))
     return not specific and not any(_meaningful(by_i[i]) for i in _content_tokens(p) if i != p.head.i and i in by_i)
 
 
@@ -1048,8 +1101,10 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
                 else:
                     total += u_limit()
                 continue
+            conjunct = any(t.head == p.head.i and t.deprel.split(":")[0] == "cc" for t in a.tokens)
             if not rs or rs[0].cost > u_limit():
-                if _courtesy(p, a.tokens):
+                # (talk around a request may be left out; a clause joined to it by "e"/"and" is part of it)
+                if not conjunct and _courtesy(p, a.tokens):
                     # talk around the request: left out, at the cost of its words unused
                     total += UNUSED * len(_content_tokens(p))
                     continue
@@ -1131,7 +1186,8 @@ def _coordinated(sentence: str) -> list[str]:
     for part in parts:
         text = " ".join(t.form for t in part)
         # (a verb by its tag, or by the lexicon when it knows the word only as a verb: "renomeie")
-        has_verb = any(t.upos in ("VERB", "AUX") and t.deprel.split(":")[0] in ("root", "conj") or
+        own = {t.i for t in part}
+        has_verb = any(t.upos in ("VERB", "AUX") and (t.deprel.split(":")[0] in ("root", "conj") or t.head not in own) or
                        alternatives.categories(t.form, langs.current()) == frozenset({"VERB"}) for t in part)
         if has_verb:
             verb = next((t.form for t in part if t.upos in ("VERB", "AUX")), verb)
@@ -1188,7 +1244,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
     """The new engine's understanding of a text, in the same shape as the old one's (``understand.Understanding``):
     each sentence in order, with what the earlier ones made salient."""
     u = _u()
-    lang = lang or langs.detect(text)
+    lang = lang or langs.detect(text, _names(world))
     with langs.use(lang), alternatives.page_names(world):
         sentences = _sentences(text) or [text]
         ctx = ctx or Context()
@@ -1205,7 +1261,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
             # other segmentations of the sentence into clauses, each read on its own at the cost of the split: at its
             # commas ("me faz um favor, centraliza o parágrafo") and at its coordinations, a clause without a verb
             # taking the previous one's (gapping: "deixa X em negrito e Y em itálico")
-            chosen_split = None
+            chosen_split = asking_split = None
             for segs in (_clauses(sent), _coordinated(sent)):
                 if len(segs) < 2:
                     continue
@@ -1222,14 +1278,34 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                     continue
                 if chosen_split is not None and total >= chosen_split[1]:
                     continue
-                rs = [_decide(seg, seg_its, work, lang) for seg, seg_its in parts]
+                rs = [_decide(seg, seg_its, _world_with(work, c2), lang) for seg, seg_its in parts]
                 acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
                 if acting and all(r.decision == "executar" for r in acting):
                     chosen_split = (rs, total, c2)
+                elif asking_split is None and acting and sum(r.decision == "perguntar" for r in acting) == 1 and                         all(r.decision in ("executar", "perguntar") for r in acting) and                         not any(r.readings and r.readings[0].unknown_verb for r in acting):
+                    asking_split = (rs, total, c2)
+            if chosen_split is None and asking_split is not None and not (its and its[0].cost <= u.LIMIT and
+                                                                          _decide(sent, its, work, lang).decision
+                                                                          in ("executar", "perguntar")):
+                # one clause of the coordination has two meanings ("deixa o título vermelho e o botão azul": the
+                # button's text or its fill): the question carries the whole sentence in each option
+                rs, total, c2 = asking_split
+                acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
+                failed = next(r for r in acting if r.decision == "perguntar")
+                k = acting.index(failed)
+                before = [c for r in acting[:k] for c in r.best.constraints]
+                after = [c for r in acting[k + 1:] for c in r.best.constraints]
+                for rd in failed.readings:
+                    rd.constraints = before + list(rd.constraints) + after
+                    rd.paraphrase = u.paraphrase(rd.constraints, world)
+                failed.text = sent
+                results.append(failed)
+                ctx = c2
+                continue
             if chosen_split is not None:
                 rs, total, c2 = chosen_split
                 acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
-                cons = [c for r in acting for c in r.best.constraints]
+                cons = _last_wins([c for r in acting for c in r.best.constraints])
                 best = u.Reading("texto", cons, total, [], u.paraphrase(cons, world))
                 results.append(u.Understanding(sent, [t for r in rs for t in r.tokens], [best], "executar",
                                                best.paraphrase, lang))
@@ -1259,7 +1335,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                     rd.constraints = before + list(rd.constraints) + after
                     rd.paraphrase = u.paraphrase(rd.constraints, world)
             return failed
-        cons = [c for r in acting for c in r.best.constraints]
+        cons = _last_wins([c for r in acting for c in r.best.constraints])
         best = u.Reading("texto", cons, sum(r.best.cost for r in acting), [], u.paraphrase(cons, world))
         return u.Understanding(text, [t for r in results for t in r.tokens], [best], "executar", best.paraphrase, lang)
 
@@ -1282,6 +1358,13 @@ def _decide(text, its, world, lang):
     rs = [reading(i) for i in its[:10]]
     tokens = best.analysis.tokens
     if best.act == "assertion" and not best.cands:
+        tied = next((i for i in its[1:] if i.cost - best.cost < TIE and i.act == "request" and i.constraints), None)
+        if tied is not None:
+            # as cheap to read as a statement as a request ("give the Newsletter form a white background", with
+            # "give" read as a noun): which one is not known; the change is confirmed before it is done
+            r = reading(tied)
+            return u.Understanding(text, tied.analysis.tokens, [r] + rs, "perguntar",
+                                   langs.msg("confirm", why="", what=r.paraphrase), lang)
         return u.Understanding(text, tokens, rs, "fato", langs.msg("not_understood", why="afirmação"), lang)
     if best.act == "courtesy":
         return u.Understanding(text, tokens, rs, "cortesia", "", lang)
@@ -1341,6 +1424,22 @@ def _other_property(a: Cand, b: Cand) -> bool:
     return True
 
 
+def _last_wins(cons: list) -> list:
+    """The changes of a text, where the same property of the same element is set twice: the later setting refines
+    or corrects the earlier ("a fonte maior, tipo 22px"; "deixa azul... não, vermelho"); only it is done."""
+    key = lambda c: (c.get("id"), c.get("breakpoint"), c.get("state"), c.get("property"))         if c["kind"] == "style" else None  # noqa: E731
+    later = {}
+    for k, c in enumerate(cons):
+        if key(c) is not None:
+            later[key(c)] = k
+    return [c for k, c in enumerate(cons) if key(c) is None or later[key(c)] == k]
+
+
+def _names(world) -> list:
+    """The names of the page's elements (no evidence of the language a request is in)."""
+    return [n.get("name") or "" for n in world.nodes.values()]
+
+
 def _effect(constraints: list) -> tuple:
     return tuple(sorted(repr(sorted(c.items())) for c in constraints))
 
@@ -1349,7 +1448,7 @@ def understand_request(text: str, world, by: str = "usuario", lang: str | None =
     """What the application calls (plan C6): a definition the user teaches ("blorfar significa ...") is learned;
     a verb the user taught is read through its definition; everything else is understood by this engine."""
     u = _u()
-    lang = lang or langs.detect(text)
+    lang = lang or langs.detect(text, _names(world))
     with langs.use(lang):
         from .teaching import definition
 

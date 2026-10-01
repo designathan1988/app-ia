@@ -502,6 +502,47 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - referência pelo plural do nome ("o título dos planos");
   - "padding" de todos os lados.
 
+### Rodada 10 (2026-10-01): as classes do congelado v3, em outras frases
+- `experiments/rodada10.py`: uma quinta página (livraria), com 37 pedidos e 9 perguntas.
+
+  | Medida | Pedidos | Perguntas |
+  |---|---|---|
+  | Limpa | 17/14/6 | 6/3/0 |
+  | Depois das correções | 35/2/0 | 9/0/0 |
+
+- As classes corrigidas, todas gerais:
+  - a língua é detectada sem os nomes da página nem o que está entre aspas;
+  - cores de duas palavras ("azul claro", "dark green"):
+    - a cor nomeada do CSS que o tom forma;
+    - o tom em inglês vem dos conceitos compartilhados das wordnets;
+    - entre vários tons, vence o prefixo que forma mais nomes de cor do CSS;
+  - nome com número ("Livro 3");
+  - pronome depois do verbo de um pedido é objeto ("chama ele de X");
+  - o verbo de um quadro e um nome dito são palavras com significado (deixá-los de fora custa);
+  - verbo com conjunção própria é oração coordenada ("e depois apaga");
+  - oração coordenada a um pedido não é cortesia;
+  - um shorthand sem lado vale para todos os lados, como define o W3C ("12px of padding");
+  - um lado dito em qualquer parte da oração escolhe a propriedade do lado;
+  - classe de elementos pela palavra comum dos nomes ("o segundo livro", "how many books");
+  - um ordinal ou "todos" fala de um conjunto, não de um nome;
+  - plural não é nome próprio;
+  - um composto nominal restringe por contenção;
+  - quando a contenção rejeita o nome, valem os elementos do tipo dito ali dentro;
+  - os sentidos de substantivo vêm primeiro na comparação entre línguas (5 sentidos);
+  - **valor atual pela folha de estilo base do builder** (`src/core/render/base.ts`): um comparativo sem valor
+    definido escala a partir do que a página mostra (h2 = 1,5rem = 24px; o corpo tem 16px; propriedades herdadas
+    seguem o W3C);
+  - num controle de formulário, "maior" sem a propriedade é perguntado;
+  - a mesma propriedade definida duas vezes num texto: vale a última ("maior, tipo 22px");
+  - leitura de afirmação empatada com uma de pedido: confirma;
+  - a pergunta de uma parte de uma coordenação leva o pedido inteiro em cada opção.
+- **Expectativas corrigidas nos conjuntos de desenvolvimento** (registravam limitações, não o significado):
+  - "cinza claro" agora espera lightgray;
+  - "16px de padding" agora espera os quatro lados (`m5_livre` passou a aceitar uma lista de mudanças esperadas);
+  - o teste "comparativo sem valor pergunta" agora espera o valor da folha base.
+- **Medidas:** regressão 245 com 0 errados; rodada 7 52/4/0; rodada 8 39/4/0; rodada 9 41/3/0 e 24/24;
+  **M5 93,7%** (era 93,1%) com 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
