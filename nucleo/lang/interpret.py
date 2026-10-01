@@ -528,6 +528,9 @@ def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
                 if la is a or lit.words & f.words:
                     continue
                 state = f"field:{fid}"
+                if "texto com palavras de significado" in lit.notes:
+                    # the field said is a text ("o texto do parágrafo para Olá mundo"): its words are the text
+                    lit = gr.Den(lit.kind, lit.data, lit.cost - 2.0, lit.words)
                 out.append(Cand(state, [{"kind": "field", "id": owner.data[0], "field": fid, "value": lit.data}],
                                 f.cost + lit.cost + ev.kinds.get(state, 2.0),
                                 set(f.words) | set(lit.words) | {p.head.i} | _case_tokens(a.mention) |

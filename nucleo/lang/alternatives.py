@@ -198,8 +198,10 @@ def _relabel(words, tags, heads, d) -> str:
     return parser.labeler.predict(parser._label_features(shown, tags, d, h), allowed)
 
 
-def _attachment_variants(tokens) -> list[tuple[list[int], list[str], list[int]]]:
-    """Single moves of one dependent to another head on its attachment frontier: (heads, edits, moved)."""
+def _attachment_variants(tokens, step: bool = False) -> list[tuple[list[int], list[str], list[int], bool]]:
+    """Single moves of one dependent to another head on its attachment frontier: (heads, edits, moved,
+    projective). With `step`, a move that is not projective by itself is kept as a step towards a second move (a
+    phrase split by the parser needs both of its parts moved: "pra Olá mundo")."""
     heads = [t.head for t in tokens]
     out = []
     for t in tokens:
@@ -211,14 +213,17 @@ def _attachment_variants(tokens) -> list[tuple[list[int], list[str], list[int]]]
         for h in sorted(cands):
             new = list(heads)
             new[t.i - 1] = h
-            if h == t.i or not _acyclic(new) or not _projective(new):
+            if h == t.i or not _acyclic(new):
+                continue
+            proj = _projective(new)
+            if not proj and not step:
                 continue
             out.append((new, [f"{t.form}: {tokens[t.head - 1].form if t.head else 'ROOT'}->{tokens[h - 1].form}"],
-                        [t.i]))
+                        [t.i], proj))
     return out
 
 
-def analyses(text: str, limit: int = 80) -> list[Analysis]:
+def analyses(text: str, limit: int = 200) -> list[Analysis]:
     """The greedy analysis first, then the alternatives in order of cost (number of edits)."""
     from .understand import make_tokens
 
@@ -246,21 +251,26 @@ def analyses(text: str, limit: int = 80) -> list[Analysis]:
             tag_trees.append(a)
     # one move on every tree, then a second move on the trees that needed at most one edit before
     frontier = tag_trees
-    for _ in range(2):
+    stepped = set()
+    for round_ in range(2):
         moved_trees = []
         for a in frontier:
             if a.cost + EDIT_COST > 2 * EDIT_COST:
                 continue
             wtags = [t.upos for t in a.tokens]
-            for heads, edits, moved in _attachment_variants(a.tokens):
+            for heads, edits, moved, proj in _attachment_variants(a.tokens, step=round_ == 0):
                 rels = [t.deprel for t in a.tokens]
                 for d in moved:
                     rels[d - 1] = _relabel(words, wtags, heads, d)
                 b = Analysis(make_tokens(words, wtags, list(zip(heads, rels))), a.cost + EDIT_COST * len(edits),
                              a.edits + edits)
-                if _key(b.tokens) not in seen:
+                k = _key(b.tokens)
+                if proj and k not in seen:
                     add(b.tokens, b.cost, b.edits)
                     moved_trees.append(b)
+                elif not proj and k not in stepped:
+                    stepped.add(k)
+                    moved_trees.append(b)  # only a step: never an analysis by itself
         frontier = moved_trees
     found.sort(key=lambda a: a.cost)
     return found[:limit]

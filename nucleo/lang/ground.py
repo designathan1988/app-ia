@@ -306,8 +306,16 @@ def values(m: Mention) -> list[Den]:
         elif len(words) > 1 and len(words) == len(content) and not m.attached:
             # a phrase as said ("Olá mundo"): a text; reading words that mean something as a text costs more
             extra = 2.0 if any(meaningful(t) for t in words if t not in named) else 0.0
-            out.append(Den("lit", " ".join(t.form for t in words), 1.0 + extra, frozenset(t.i for t in words)))
-        elif named:
+            out.append(Den("lit", " ".join(t.form for t in words), 1.0 + extra, frozenset(t.i for t in words),
+                           ("texto com palavras de significado",) if extra else ()))
+        if m.attached and all(not c for c, _ in m.attached):
+            # the whole phrase with its caseless parts ("Olá" + "mundo" parsed apart): a text as said
+            whole = [t for t in m.words if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
+            if len(whole) == len([t for t in m.words if t.upos not in ("DET", "PUNCT", "ADP")]):
+                extra = 2.0 if any(meaningful(t) for t in whole if literal_value(t.form) not in m.names) else 0.0
+                out.append(Den("lit", " ".join(t.form for t in whole), 1.0 + extra, frozenset(t.i for t in whole),
+                               ("texto com palavras de significado",) if extra else ()))
+        if named and not any(d.kind == "lit" for d in out):
             out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5,
                            frozenset(t.i for t in named)))
     ix = value_index()
