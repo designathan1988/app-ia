@@ -32,15 +32,31 @@ class Builder:
             encoding="utf-8",
             bufsize=1,
         )
+        # the bridge's stderr is drained all the time: a full pipe would block it while we wait for its reply (a
+        # deadlock that showed up as runs hanging with no CPU); its last part is kept for error messages
+        self._err: list[str] = []
+        import atexit
+        import threading
+
+        threading.Thread(target=self._drain, daemon=True).start()
+        atexit.register(self._kill)
         first = self._read()
         if not first.get("ready"):
             raise BuilderError(f"ponte não iniciou: {first}")
 
+    def _drain(self) -> None:
+        for line in self.proc.stderr:
+            self._err.append(line)
+            del self._err[:-200]
+
+    def _kill(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.kill()
+
     def _read(self) -> dict:
         line = self.proc.stdout.readline()
         if not line:
-            err = self.proc.stderr.read()
-            raise BuilderError(f"ponte encerrou: {err[-2000:]}")
+            raise BuilderError(f"ponte encerrou: {''.join(self._err)[-2000:]}")
         return json.loads(line)
 
     def call(self, op: str, **payload: Any) -> dict:
@@ -75,7 +91,10 @@ class Builder:
             self.call("close")
         except Exception:
             pass
-        self.proc.wait(timeout=10)
+        try:
+            self.proc.wait(timeout=10)
+        except Exception:
+            self._kill()  # (never leave a bridge behind)
 
     def __enter__(self) -> "Builder":
         return self
