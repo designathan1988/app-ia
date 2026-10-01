@@ -45,7 +45,8 @@ PROFILES = {
         "indefinite": {"um", "uma", "uns", "umas"},
         "pronouns": {"isso", "isto", "aquilo", "ele", "ela", "este", "esta", "esse", "essa", "selecionado",
                      "selecionada", "selecao"},
-        "modals": {"poder", "querer", "gostar", "precisar", "conseguir", "dever", "ir", "favor", "ter"},
+        "modals": {"poder", "querer", "gostar", "precisar", "conseguir", "dever", "ir", "favor", "ter", "possível",
+                   "possivel"},
         "copulas": {"ficar", "estar", "ser", "permanecer", "tornar"},
     },
     "en": {
@@ -68,7 +69,7 @@ PROFILES = {
         "definite": {"the", "this", "that", "these", "those"},
         "indefinite": {"a", "an", "some"},
         "pronouns": {"it", "this", "that", "selected", "selection"},
-        "modals": {"can", "could", "would", "will", "should", "want", "need", "please", "must", "have", "like",
+        "modals": {"can", "could", "would", "will", "should", "want", "need", "please", "must", "have", "like", "possible",
                    "'d", "'ll", "wanna", "gonna"},
         "copulas": {"be", "become", "get", "stay", "look"},
         # places and value markers, by the place kinds and cases of frames.json

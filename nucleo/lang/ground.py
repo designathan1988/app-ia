@@ -183,6 +183,16 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
         explained |= set().union(*(ws for ty, c, ws in types if c == best))
         cands = [n for n, v in world.nodes.items() if v["type"] in typs]
         cost = best
+    elif is_literal(m.head.form) and m.mods:
+        # a literal head with a noun before it ("the image 400px" parsed as one phrase): the noun is the element,
+        # the literal its value
+        for t in m.mods:
+            if t.upos in ("NOUN", "PROPN"):
+                sub = references(Mention(t, [t]), world)
+                if sub:
+                    return [Den("ref", sub[0].data, sub[0].cost + 0.5, sub[0].words, sub[0].notes,
+                                sub[0].ambiguous)]
+        return []
     else:
         return []
     # attached phrases restrict by containment: "o título do cartão", "the image in the header"
@@ -320,7 +330,9 @@ def values(m: Mention) -> list[Den]:
                            frozenset(t.i for t in named)))
     ix = value_index()
     if m.det == "indefinite":
-        content = []  # a phrase that introduces something ("uma cópia", "a copy") is not a value said
+        # the head of a phrase that introduces something ("uma cópia", "a copy") is not a value said; its
+        # modifiers can be ("a white background", "um fundo preto")
+        content = [t for t in content if t.i != m.head.i]
     prof = langs.profile()
     for t in list(content):
         # a comparative ("maior", "bigger"): a change relative to the element's own current value, never a CSS

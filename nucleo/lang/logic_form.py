@@ -228,10 +228,10 @@ def build(tokens) -> Sentence:
         # a modal or volitive head ("quero", "pode", "tem que", "should", "I'd like"): the speaker wants a state or an
         # act; the predicate is the verbal complement it governs (an infinitive; or a participle with its own copula,
         # "to be centered"), never a noun: "quero o parágrafo sublinhado" is a wish about a state
-        while top.lemma in MODALS and top.upos in ("VERB", "AUX"):
+        while (top.lemma in MODALS or fold(top.form.lower()) in MODALS) and top.upos in ("VERB", "AUX", "ADJ"):
             if act == "request":
                 act = "wish"
-            nxt = next((c for c in kids.get(top.i, []) if _base(c.deprel) in ("xcomp", "ccomp", "obj")
+            nxt = next((c for c in kids.get(top.i, []) if _base(c.deprel) in ("xcomp", "ccomp", "obj", "csubj")
                         and c.upos in ("VERB", "AUX", "ADJ")
                         and (not _participle(c) and c.upos != "ADJ" or any(
                             _base(x.deprel) in ("cop", "aux") for x in kids.get(c.i, [])))), None)
