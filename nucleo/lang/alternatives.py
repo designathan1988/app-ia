@@ -164,6 +164,13 @@ def _tag_variants(words: list[str], tags: list[str]) -> list[tuple[list[str], li
         options[k] = alts
         if cats and t not in cats:
             doubtful.add(k)  # a category the lexicon does not allow
+    from . import ground
+
+    for k, (w, t) in enumerate(zip(words, tags)):
+        if t == "ADV" and k + 1 < len(words) and ground.place_relation((w.lower(),)):
+            options.setdefault(k, [])
+            if "ADP" not in options[k]:
+                options[k].append("ADP")
     out = []
     for k, alts in options.items():
         for c in alts:

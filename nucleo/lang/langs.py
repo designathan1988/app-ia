@@ -23,6 +23,8 @@ PROFILES = {
         "of": "de",
         "between": {"entre"},
         "universal": {"todo", "toda", "todos", "todas", "cada"},
+        # totality: "a página inteira" is the page itself, all of it
+        "whole": {"inteiro", "inteira", "inteiros", "inteiras", "todo", "toda"},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
         # degree: comparison words and the verbs of changing an amount (closed class)
@@ -52,6 +54,7 @@ PROFILES = {
         "between": {"between"},
         "from": "from",
         "universal": {"all", "every", "each"},
+        "whole": {"whole", "entire", "full"},
         "sides": {"antes": "top", "depois": "bottom"},
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
         "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},

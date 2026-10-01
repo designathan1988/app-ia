@@ -98,7 +98,10 @@ def place_relation(words: tuple) -> str | None:
 
 
 def _case_words(case: str) -> tuple:
-    return _words(case) if case else ()
+    """The words of a phrase's preposition(s), without the final "de/of" that introduces the anchor."""
+    words = _words(case) if case else ()
+    of = fold(langs.profile()["of"])
+    return words[:-1] if len(words) > 1 and words[-1] == of else words
 
 
 # -- references -------------------------------------------------------------------------------------------------
@@ -192,6 +195,7 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
             cands = inside
             explained |= set(sub[0].words) | {t.i for t in a.words if t.upos == "ADP"}
             cost += sub[0].cost
+    explained |= {t.i for t in m.words if fold(t.form.lower()) in prof.get("whole", set())}
     # determiners and ordinals pick among the candidates
     if m.ordinal is not None and cands:
         k = m.ordinal
@@ -528,6 +532,7 @@ def _from_lexicon(lem: str, ev: Evidence) -> None:
         for form in participles(lem):
             pairs += [g.target for g in grounding.meanings(form, "A") if g.kind == "valor" and g.cost == 0.0
                       and g.target not in pairs]
+
         for pr in pairs:
             ev.pairs.append(pr)
             ev.kinds["style"] = 0.0
@@ -606,7 +611,8 @@ def verb_evidence(p: Predicate, tokens=None) -> Evidence:
         ev.cmp = 1 if fold(p.lemma) in prof["more"] else -1
         ev.kinds = {"style": 0.0}
         return ev
-    if p.kind == "state" or p.lemma in u.COPULAS or p.lemma in u.MODALS:
+    multi = [(lem, parts) for lem, parts in _verb_candidates(p, tokens) if parts]
+    if (p.kind == "state" or p.lemma in u.COPULAS or p.lemma in u.MODALS) and not multi:
         # a copula, or a volitive with no verbal complement ("quero o título azul", "I'd like it in bold"): the
         # state is what the arguments say
         ev.light = True
@@ -620,6 +626,16 @@ def verb_evidence(p: Predicate, tokens=None) -> Evidence:
             ev.lemma, ev.particles = lem, parts
             _from_graph(lem, ev, only_props=True)
             break
+    if not ev.pairs and set(ev.kinds) <= {"style"} and langs.current() == "pt" and not u._in_frame(p.lemma):
+        # a dictionary synonym whose participle names a value ("grifar" ~ sublinhar: sublinhado -> underline)
+        from . import dictionary
+
+        for syn in dictionary.synonyms(p.lemma)[:4]:
+            for form in participles(syn):
+                for g in grounding.meanings(form, "A"):
+                    if g.kind == "valor" and g.cost == 0.0 and g.target not in ev.pairs:
+                        ev.pairs.append(g.target)
+                        ev.kinds["style"] = 1.0
     if not ev.kinds:
         ev.known = False
         ev.kinds = {s: u.COST["verbo_fora_do_quadro"] for s in ALL_STATES}

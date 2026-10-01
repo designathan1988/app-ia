@@ -421,8 +421,11 @@ def _structural(p, args, ev, world) -> list[Cand]:
         out.append(Cand("removed", [{"kind": "removed", "id": n} for n in t.data],
                         t.cost + ev.kinds.get("removed", 9.0), set(t.words) | {p.head.i}, list(t.notes),
                         list(t.data) if t.ambiguous else []))
-        # moved: to a place said by another phrase
-        for pa, pd in places:
+        # moved: to a place said by another phrase, or by one attached to the theme itself ("move the title below
+        # the paragraph" either way)
+        own = [(Arg("obl", c, x, []), d) for c, x in a.mention.attached for d in gr.place(c, x, world)
+               if not d.words & t.words]
+        for pa, pd in places + own:
             if pa is a:
                 continue
             rel, anchors = pd.data
@@ -435,6 +438,39 @@ def _structural(p, args, ev, world) -> list[Cand]:
             out.append(Cand("moved", cons, t.cost + pd.cost + ev.kinds.get("moved", 9.0),
                             set(t.words) | set(pd.words) | {p.head.i} | _case_tokens(pa.mention), list(t.notes),
                             list(t.data) if t.ambiguous else list(anchors) if pd.ambiguous else []))
+    return out
+
+
+def _value_removal(p, args, ev, world) -> list[Cand]:
+    """A removal whose object is a value, from an element ("tira o negrito do título", "remove the bold from the
+    title"): the element's property goes back to its normal value."""
+    u = _u()
+    from .values import _builder_properties, _keywords
+
+    if "removed" not in ev.kinds or ev.kinds["removed"] >= 4.0:
+        return []
+    out = []
+    for a in args:
+        if a.role not in ("obj", "result"):
+            continue
+        for v in a.of("val"):
+            # the element it is taken from: a phrase attached to the value or to the clause ("de/from/of")
+            sources = [(Arg("obl", c, x, []), r) for c, x in a.mention.attached for r in gr.references(x, world)]
+            sources += [(b, r) for b in args if b is not a and b.role in ("obl", "adv") for r in b.of("ref")]
+            for sa, t in sources:
+                nodes = list(t.data)
+                ntype = world.nodes[nodes[0]]["type"]
+                props = [(prop, u._prior(prop, ntype)) for prop, _ in v.data if prop in _builder_properties()]
+                if not props:
+                    continue
+                prop = min(props, key=lambda x: x[1])[0]
+                reset = "normal" if "normal" in _keywords(prop) else "initial"
+                bp, st = world.layer
+                cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop, "value": reset}
+                        for n in nodes]
+                out.append(Cand("style", cons, v.cost + t.cost + ev.kinds["removed"] + min(props, key=lambda x: x[1])[1],
+                                set(v.words) | set(t.words) | {p.head.i} | _case_tokens(sa.mention) |
+                                _case_tokens(a.mention), list(t.notes), list(nodes) if t.ambiguous else []))
     return out
 
 
@@ -493,7 +529,9 @@ def _content_tokens(p: lf.Predicate) -> set:
     subjects = {x.head.i for r, _, x in p.roles if r == "subj" and isinstance(x, lf.Mention)}
     return {i for i, t in toks.items() if t is None or (t.upos in ("NOUN", "PROPN", "ADJ", "VERB", "ADV", "NUM", "X")
                                                          or is_literal(t.form)) and t.upos != "PRON"
-            or t.upos == "PRON" and i not in subjects and t.deprel.split(":")[0] in ("obj", "obl", "nmod")}
+            or t.upos == "PRON" and i not in subjects and t.deprel.split(":")[0] in ("obj", "obl", "nmod")
+            # (a preposition attaches as case, mark or fixed: one attached otherwise is a word to account for)
+            or t.upos == "ADP" and t.deprel.split(":")[0] not in ("case", "mark", "fixed", "compound")}
 
 
 def _meaningful(t) -> bool:
@@ -517,10 +555,15 @@ def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
 def readings(p: lf.Predicate, world, tokens) -> list[Cand]:
     ev = gr.verb_evidence(p, tokens)
     args = _args(p, world, ev.particles)
+    for a in args:
+        # the phrase whose preposition is part of the verb is its object ("get rid of the image")
+        cases = _case_tokens(a.mention)
+        if a.role in ("obl", "adv") and cases and cases <= set(ev.particles):
+            a.role, a.case = "obj", ""
     lemmas = {t.i: lexicon.lemma_of(t.form) for t in tokens}
     lemmas.update({t.i: fold(t.lemma) for t in tokens if t.upos in ("VERB", "ADP", "ADV")})
     cands = _style(p, args, ev, world) + _commands(p, args, ev, world, lemmas) + \
-        _structural(p, args, ev, world) + _fields(p, args, ev, world)
+        _structural(p, args, ev, world) + _fields(p, args, ev, world) + _value_removal(p, args, ev, world)
     # a causative ("faz o parágrafo sumir", "make the image disappear"): the caused event, its theme the causee
     for r, w, q in p.roles:
         if isinstance(q, lf.Predicate) and r in ("content", "result"):

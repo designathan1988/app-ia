@@ -58,11 +58,17 @@ def literal_value(tok: str) -> str:
 
 
 def tokenize(text: str) -> list[str]:
+    from . import langs
+
     out = []
+    lang = langs.current()
     table = contractions()
     for m in _TOKEN.finditer(text):
         tok = m.group(0)
         low = tok.lower()
+        if lang == "en" and not is_literal(tok) and len(tok) > 2 and low[-2:] in ("'s", "’s") and low not in table:
+            out += [tok[:-2], tok[-2:]]
+            continue
         if not is_literal(tok) and low in table:
             parts = table[low]
             # keep the capitalisation of the first letter ("Na" -> "Em a")
