@@ -83,7 +83,7 @@ MODALS = _LangSet("modals")
 # verbs that link a subject to a state ("o título tem que ficar vermelho"): the request is that state
 COPULAS = _LangSet("copulas")
 PRONOUNS = _LangSet("pronouns")
-COST = {"verbo_fora_do_quadro": 4.0, "referente_ambiguo": 2.5, "referente_por_tipo": 0.5,
+COST = {"verbo_fora_do_quadro": 4.0, "construcao": 1.5, "referente_ambiguo": 2.5, "referente_por_tipo": 0.5,
         "referente_pela_selecao": 0.3, "referente_nao_resolvido": 5.0, "valor_ausente": 5.0,
         "palavra_sem_explicacao": 1.0, "tipo_diferente_do_nome": 2.0, "local_ausente": 0.5,
         "artigo_como_preposicao": 0.5, "objeto_com_preposicao": 1.0, "definido_para_novo": 1.0,
@@ -258,6 +258,8 @@ def _predicate(tokens: list[Token]) -> Token | None:
     for k, t in enumerate(tokens):  # lexical reranking: the first word that can be a frame verb
         if _politeness(tokens, k) or _predicative(tokens, t):
             continue
+        if fold(t.form.lower()) in _case_words() or t.form.lower() in lexicon.stop():
+            continue  # a preposition or article is never the request's verb ("to" read as a verb by the tagger)
         lemma = _frame_verb(t.form)
         if lemma and t.lemma not in MODALS:
             t.lemma, t.upos = lemma, "VERB"
@@ -827,6 +829,22 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
             if base_cost:
                 r.unknown_verb = True
                 r.assumptions.insert(0, f"o verbo '{pred.lemma}' não está no quadro '{f['id']}'")
+            out.append(r)
+    # constructions carry meaning of their own, whatever the verb (Goldberg 1995): verb + object + destination
+    # is caused motion ("joga o botão pro começo da seção"); verb + new element + place is putting it there
+    # ("joga um botão no fim"). For verbs whose own frames are not these; they compete with the other readings.
+    for f in FRAMES["quadros"]:
+        if f["id"] not in ("mover", "existir") or f in frames and not base_cost:
+            continue
+        for r in _frame_readings(f, pieces, world):
+            placed = any(c.get("parent") for c in r.constraints)
+            if not placed or (f["id"] == "existir" and any(c.get("parent") is None for c in r.constraints)):
+                continue
+            if f["id"] == "existir" and "artigo definido para algo novo" in r.assumptions:
+                continue  # putting something new needs it said as new ("um botão", "another button")
+            r.verb = pred.lemma
+            r.cost += COST["construcao"]
+            r.assumptions.insert(0, f"construção: verbo + objeto + lugar ({f['id']})")
             out.append(r)
     if not out or min(r.cost for r in out) > LIMIT or all(r.unknown_verb for r in out):
         out += _light_verb_readings(pred, pieces, world)

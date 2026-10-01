@@ -38,6 +38,9 @@ DB = ROOT / "data" / "cache" / "conceitos.sqlite"
 # cost of following a relation between concepts (a synonym is the same concept: cost 0)
 REL_COST = {"similar": 0.6, "also": 0.8, "attribute": 0.6, "derivation": 0.5, "pertainym": 0.6,
             "participle": 0.4, "hypernym": 1.2, "instance_hypernym": 1.5, "entails": 1.0, "causes": 1.0}
+# (definition edges, concept -> the words of its English definition, are stored but not followed: measured, they
+# added more noise than meaning — "sumir" reached "forma flexionada", "round" reached "along" — and did not lead
+# "desaparecer" to hiding; docs/significado.md)
 SENSE_STEP = 0.25  # each later sense of a word costs this much more
 MAX_COST = 3.0
 TRANSLATION_COST = 0.5
@@ -105,14 +108,45 @@ def build() -> dict:
     con.executescript("""
         CREATE INDEX lex_w ON lex(lang, word);
         CREATE INDEX lex_c ON lex(concept);
+        CREATE INDEX gloss_c ON gloss(concept);
+    """)
+    stats["definicoes"] = _definition_edges(con)
+    con.executescript("""
         CREATE INDEX rel_a ON rel(a);
         CREATE INDEX rel_b ON rel(b);
-        CREATE INDEX gloss_c ON gloss(concept);
     """)
     con.commit()
     con.close()
     _anchors.cache_clear()
     return stats
+
+
+GLOSS_SKIP = {"be", "have", "do", "make", "get", "give", "take", "put", "set", "go", "come", "become", "cause",
+              "something", "someone", "somebody", "thing", "one", "way", "kind", "act", "state", "quality",
+              "used", "especially", "usually", "often", "very", "more", "less", "much", "many", "other"}
+
+
+def _definition_edges(con) -> int:
+    """A concept -> the concepts of the content words of its English definition ("disappear: become invisible or
+    unnoticeable" -> invisible, unnoticeable), each word in its first sense: the meaning a reader gets from a
+    definition. Function words and the most general verbs ("become", "make") carry no meaning of their own and
+    are skipped (they would connect everything)."""
+    first: dict[str, str] = {}
+    for word, concept, rank in con.execute("SELECT word, concept, rank FROM lex WHERE lang = 'en'"):
+        if rank == 0 and word not in first:
+            first[word] = concept
+    rows = []
+    for concept, text in con.execute("SELECT concept, text FROM gloss WHERE lang = 'en'").fetchall():
+        seen = set()
+        for w in re.findall(r"[a-z]+", text.lower()):
+            if len(w) < 4 or w in GLOSS_SKIP or w in seen:
+                continue
+            seen.add(w)
+            target = first.get(w) or (first.get(w[:-1]) if w.endswith("s") else None)
+            if target and target != concept:
+                rows.append((concept, target, "definition"))
+    con.executemany("INSERT INTO rel VALUES (?,?,?)", rows)
+    return len(rows)
 
 
 @lru_cache(maxsize=1)
@@ -138,7 +172,7 @@ def concepts_of(word: str, lang: str = "pt", pos: str | None = None) -> tuple[tu
     return tuple(sorted(out.items(), key=lambda x: x[1]))
 
 
-DIRECTED = {"hypernym", "instance_hypernym", "entails", "causes"}  # followed only towards the more general
+DIRECTED = {"hypernym", "instance_hypernym", "entails", "causes", "definition"}  # followed only towards the more general
 
 
 @lru_cache(maxsize=100_000)

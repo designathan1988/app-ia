@@ -220,3 +220,16 @@ def test_participle_of_a_command_verb_is_its_state():
     u = understand("deixa todos os parágrafos escondidos", World.from_document(load_fixture("aurora"), []))
     assert u.decision == "executar"
     assert {c["command"] for c in u.best.constraints} == {"element.toggleHidden"} and len(u.best.constraints) == 4
+
+
+@pytest.mark.parametrize("text, expected", [
+    # constructions mean something whatever the verb (caused motion; putting a new element somewhere)
+    ("joga o parágrafo Intro pro começo da seção Hero", {"kind": "moved", "id": "n-intro", "index": 0}),
+    ("throw the Intro paragraph to the end of the Hero section", {"kind": "moved", "id": "n-intro"}),
+    ("joga um botão no fim da seção Hero", {"kind": "added", "type": "button", "parent": "n-hero"}),
+])
+def test_constructions(text, expected):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", (text, u.message)
+    c = u.best.constraints[0]
+    assert {k: c.get(k) for k in expected} == expected, (text, c)
