@@ -577,6 +577,20 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
 - **Medidas:** regressão 245 com 0 errados; rodadas 7 a 11 com 0 errados (52/4, 41/2, 41/3, 35/2, 33/0); M5
   93,7% e 0 silenciosos.
 
+### Congelado v5 (2026-10-01), medido uma vez
+- `experiments/congelado5.py` (hash 8c09066d5f3f): uma página nova (portfólio de fotógrafa), 56 pedidos e 16
+  perguntas.
+- **Pedidos 43/11/2, perguntas 13/2/1. O portão falhou.** O conjunto está gasto.
+- As classes visíveis vão para a rodada 12, com outras frases:
+  - ordinal sobre uma classe de nomes ("a segunda foto" = «Foto 2», não a segunda imagem do documento);
+  - nome com número em inglês ("photo 3");
+  - rótulo de tipo lido como valor ("título" → right, por uma tradução ruim);
+  - literal com nome: a penalidade deve valer só para o nome do próprio alvo ("Biografia completa");
+  - o comparativo deve usar a dimensão que o elemento tem definida;
+  - "caption" é ao mesmo tempo nome de tipo e tradução do nome de um elemento;
+  - nome da página com palavras interrogativas ("Quem sou");
+  - "coloca 24px de padding na galeria" lido como remoção.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
