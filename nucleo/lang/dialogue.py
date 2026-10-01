@@ -25,11 +25,13 @@ from .lexicon import lemma_of
 from .values import fold
 
 YES = {"sim", "isso", "pode", "ok", "exato", "certo", "correto", "claro", "confirmo", "isso mesmo", "pode ser",
-       "faz", "faca", "manda", "s"}
-NO = {"nao", "cancela", "cancelar", "esquece", "nenhum", "nenhuma", "n", "deixa", "deixa pra la"}
+       "faz", "faca", "manda", "s", "yes", "yeah", "yep", "sure", "right", "do it", "go ahead", "correct", "y"}
+NO = {"nao", "cancela", "cancelar", "esquece", "nenhum", "nenhuma", "n", "deixa", "deixa pra la", "no", "nope",
+      "cancel", "never mind", "none"}
 ORDINALS = {"primeiro": 0, "primeira": 0, "1": 0, "um": 0, "segundo": 1, "segunda": 1, "2": 1, "dois": 1,
-            "terceiro": 2, "terceira": 2, "3": 2, "tres": 2, "quarto": 3, "quarta": 3, "4": 3}
-ELLIPSIS = {"mesmo", "mesma", "tambem", "igual", "igualmente"}
+            "terceiro": 2, "terceira": 2, "3": 2, "tres": 2, "quarto": 3, "quarta": 3, "4": 3,
+            "first": 0, "one": 0, "second": 1, "two": 1, "third": 2, "three": 2, "fourth": 3}
+ELLIPSIS = {"mesmo", "mesma", "tambem", "igual", "igualmente", "same", "too", "also", "likewise"}
 
 
 @dataclass
@@ -44,6 +46,7 @@ class State:
     pending: Pending | None = None
     last_constraints: list = field(default_factory=list)
     last_nodes: list = field(default_factory=list)
+    last_reading: object = None  # the reading of the last action (for "por quê?")
 
 
 def _words(text: str) -> list[str]:
@@ -92,7 +95,7 @@ def choose(p: Pending, reply: str):
     for w in ws:
         if w in ORDINALS and ORDINALS[w] < len(p.options):
             return p.options[ORDINALS[w]]
-        if w in ("ultimo", "ultima"):
+        if w in ("ultimo", "ultima", "last"):
             return p.options[-1]
     # words that pick one option: an element's name, or words of its paraphrase ("o fundo", "a cor do texto")
     lem = {fold(lemma_of(w)) for w in ws if len(w) > 2}

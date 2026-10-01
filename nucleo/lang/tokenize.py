@@ -34,7 +34,12 @@ def _contractions(lang: str) -> dict[str, tuple[str, ...]]:
     from .syntax import models_dir
 
     path = models_dir(lang) / "contractions.json"
-    return {k: tuple(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+    table = {k: tuple(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+    if lang == "en":
+        # an English contraction is written with an apostrophe ("don't", "it's"); the treebank's other multiword
+        # tokens are typos joined in the source text ("others" = "other s"), not contractions
+        table = {k: v for k, v in table.items() if "'" in k or "’" in k}
+    return table
 
 
 def is_literal(tok: str) -> bool:

@@ -143,6 +143,14 @@ class Assistant:
             if is_code_question(text, index):
                 a = answer(text, index)
                 return Reply("codigo", a.text, a.kind != "nao_entendi")
+        doc = self.session.document()
+        from .lang.questions import answer as page_answer
+        from .lang.understand import World
+
+        q = page_answer(text, World.from_document(doc["document"], doc["selection"]), doc["document"],
+                        self.session.dialog.last_reading)
+        if q is not None:
+            return Reply("resposta", q.text, True)
         before = self.session.state
         a = self.session.ask(text)
         if a.decision == "executado":

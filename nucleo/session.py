@@ -17,7 +17,7 @@ from .builder.knowledge import load_domains
 from .builder.planner import Planner
 from types import SimpleNamespace
 
-from .lang import dialogue, learned
+from .lang import dialogue, langs, learned
 from .lang.understand import FRAMES, World, gapped_clauses, split_clauses, understand
 
 
@@ -92,7 +92,7 @@ class Session:
         if p is not None:
             choice = dialogue.choose(p, text)
             if choice == "nao":
-                return Answer(text, "comando", "Certo, nada foi feito.", [], True)
+                return Answer(text, "comando", langs.msg("nothing_done", langs.detect(text)), [], True)
             if choice is not None:
                 a = self._execute(text, choice, choice.paraphrase)
                 self.history.pop()
@@ -109,13 +109,17 @@ class Session:
                         a.message += " " + self._learn_from_example(p.verb, u.best, f"{p.text} = {text}")
                     return a
         if self.dialog.last_constraints and dialogue.is_ellipsis(text) and not self._understood(text):
-            node = dialogue.ellipsis_target(text, self._world())
+            with langs.use(langs.detect(text)):  # its words are matched in the language they were said in
+                node = dialogue.ellipsis_target(text, self._world())
             if node is not None:
                 cons = dialogue.repeat_on(self.dialog.last_constraints, self.dialog.last_nodes, node)
                 from .lang.understand import paraphrase
 
-                r = SimpleNamespace(constraints=cons, verb="", frame="elipse", paraphrase=paraphrase(cons, self._world()))
-                a = self._execute(text, r, f"O mesmo: {r.paraphrase}")
+                with langs.use(langs.detect(text)):
+                    said = paraphrase(cons, self._world())
+                    message = langs.msg("same_again", what=said)
+                r = SimpleNamespace(constraints=cons, verb="", frame="elipse", paraphrase=said, assumptions=[])
+                a = self._execute(text, r, message)
                 self.history.pop()
                 return a
         return None
@@ -167,6 +171,7 @@ class Session:
         a = self._carry_out(text, u)
         if a.ok and a.decision == "executado":
             self.dialog.last_constraints = reading.constraints
+            self.dialog.last_reading = reading
             self.dialog.last_nodes = [c["id"] for c in reading.constraints if isinstance(c.get("id"), str)]
         return a
 
@@ -177,7 +182,8 @@ class Session:
             return self._run_command(text, u)
         r = self.planner.solve_constraints(self.state, u.best.constraints)
         if not r.solved:
-            a = Answer(text, "sem_plano", f"Entendi «{u.message}», mas não achei comandos que façam isso.", [], False)
+            a = Answer(text, "sem_plano", langs.msg("no_plan", getattr(u, "lang", None) or langs.detect(text),
+                                                    what=u.message), [], False)
             self.history.append(a)
             return a
         st = self.state

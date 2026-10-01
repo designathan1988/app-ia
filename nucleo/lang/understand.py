@@ -444,8 +444,14 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
             if is_literal(t.form) and t.form[:1] not in "\"'“":
                 continue  # an unquoted CSS value ("#ff0000", "24px") is a value, never the name of an element
             if (t.upos == "PROPN" or t.form[:1].isupper() or t.form[:1] in "\"'“") and                     literal_value(t.form).lower() not in known and not lexicon.match((lexicon.lemma_of(t.form),), KINDS):
-                return [], COST["referente_nao_resolvido"], [f"nenhum elemento se chama {literal_value(t.form)}"], 1
+                return [], COST["referente_nao_resolvido"], [langs.msg("no_such_element", name=literal_value(t.form))], 1
     type_hits = lexicon.match(seq, {"tipo"})
+    if not type_hits:
+        # the type may come after a name ("the Hero section", "the Intro paragraph")
+        for i in range(1, len(seq)):
+            type_hits = lexicon.match(seq, {"tipo"}, i)
+            if type_hits:
+                break
     typ = type_hits[0][0].id if type_hits else None
     type_cost = 0.0
     if typ is None and seq and skip < len(piece.words):
@@ -462,9 +468,22 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
             typ, type_cost = hit.target, hit.cost
             type_hits = [(SimpleNamespace(id=hit.target, lemmas=(seq[0],)), 1)]
     # a node named like its type ("Parágrafo") is named by the very word that gave the type: counted once
+    # (the default name is the type's own label in the catalog: "Parágrafo"; a name like "Title" for a heading is a
+    # real name, even if it is also a word for the type)
+    type_label = lexicon.lemma_seq(_label("tipo", typ)) if typ else ()
     named_by_type = bool(names and type_hits) and all(
-        lexicon.lemma_of(world.nodes[n]["name"] or "") in type_hits[0][0].lemmas for n in names)
-    explained = (type_hits[0][1] if type_hits else 0) + (1 if names and not named_by_type else 0)
+        lexicon.lemma_of(world.nodes[n]["name"] or "") in type_label for n in names)
+    # words explained: those of the type label and those of the name, each word counted once ("the title Title":
+    # two words; "make the title red" with a heading called "Title": one word, "title", is both)
+    content = [t for t in piece.words[skip:] if not is_literal(t.form) and t.form.lower() not in lexicon.stop()]
+    name_words = {i for i, t in enumerate(content) for n in names
+                  if literal_value(t.form).lower() == (world.nodes[n]["name"] or "").lower()}
+    type_words = set()
+    if type_hits:
+        start = next((i for i in range(len(seq)) if lexicon.match(seq, {"tipo"}, i)), 0) if typ else 0
+        type_words = set(range(start, start + type_hits[0][1]))
+    used_words = name_words | type_words
+    explained = (max(used_words) + 1) if used_words else 0
     if named_by_type and len([n for n, v in world.nodes.items() if v["type"] == typ]) > 1:
         names = []  # "o título" with two titles: the default name "Título" does not single one out
     if names:
@@ -1425,32 +1444,39 @@ def _label(kind: str, id_: str) -> str:
 
 
 def paraphrase(constraints: list, world: World) -> str:
+    """What was understood, said back in the request's language: the action verbs are the builder's own labels in
+    that language, the names are the document's, and the function words come from the language profile."""
+    lang = langs.current()
+    say = langs.profile()["say"]
+
     def name(nid):
         n = world.nodes.get(nid) if nid else None
-        return f"«{n['name']}»" if n else "o elemento"
+        return f"«{n['name']}»" if n else say["element"]
 
     parts = []
     for c in constraints:
         if c["kind"] == "added":
-            where = f" em {name(c['parent'])}" if c.get("parent") else ""
-            pos = "" if c.get("index") is None else f", na posição {c['index'] + 1}"
-            extra = "".join(f" com {'o texto' if f == 'text' else 'o nome'} \"{c[f]}\"" for f in ("text", "name")
-                            if c.get(f))
-            parts.append(f"inserir {_label('tipo', c['type']).lower()}{extra}{where}{pos}")
+            where = f" {say['in']} {name(c['parent'])}" if c.get("parent") else ""
+            pos = "" if c.get("index") is None else f"{say['at']} {c['index'] + 1}"
+            extra = "".join(f" {say['with_text'] if f == 'text' else say['with_name']} \"{c[f]}\""
+                            for f in ("text", "name") if c.get(f))
+            parts.append(f"{langs.action_word('insert', lang)} {_label('tipo', c['type']).lower()}{extra}{where}{pos}")
         elif c["kind"] == "removed":
-            parts.append(f"remover {name(c['id'])}")
+            parts.append(f"{langs.action_word('remove', lang)} {name(c['id'])}")
         elif c["kind"] == "moved":
-            pos = "" if c.get("index") is None else f", na posição {c['index'] + 1}"
-            parts.append(f"mover {name(c['id'])} para {name(c['parent'])}{pos}")
+            pos = "" if c.get("index") is None else f"{say['at']} {c['index'] + 1}"
+            parts.append(f"{langs.action_word('move', lang)} {name(c['id'])} {say['to']} {name(c['parent'])}{pos}")
         elif c["kind"] == "style":
             layer = "" if (c["breakpoint"], c["state"]) == ("desktop", "base") else \
                 f" ({_label('breakpoint', c['breakpoint'])}, {_label('estado', c['state'])})"
-            parts.append(f"definir {_label('propriedade', c['property']).lower()} de {name(c['id'])} como "
-                         f"{c['value']}{layer}")
+            parts.append(f"{langs.action_word('set', lang)} {_label('propriedade', c['property']).lower()} "
+                         f"{_OF()[0]} {name(c['id'])} {say['as']} {c['value']}{layer}")
         elif c["kind"] == "field":
-            parts.append(f"definir {c['field']} de {name(c['id'])} como {json.dumps(c['value'], ensure_ascii=False)}")
+            field = say.get(c["field"], c["field"])
+            parts.append(f"{langs.action_word('set', lang)} {field} {_OF()[0]} {name(c['id'])} {say['as']} "
+                         f"{json.dumps(c['value'], ensure_ascii=False)}")
         elif c["kind"] == "command":
-            parts.append(f"{c['label'].lower()} {name(c['id'])}" + (" (já está assim)" if c.get("already") else ""))
+            parts.append(f"{c['label'].lower()} {name(c['id'])}" + (f" {say['already']}" if c.get("already") else ""))
     text = "; ".join(parts)
     return text[:1].upper() + text[1:] + "." if parts else ""
 
@@ -1459,7 +1485,7 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
     """When no reading was built at all, say which part was missing rather than a generic failure."""
     pred = _predicate(tokens)
     if pred is None:
-        return "não achei o verbo do pedido"
+        return langs.msg("no_verb")
     pieces = _pieces(tokens, pred)
     known = {(n["name"] or "").lower() for n in world.nodes.values()}
     for p in pieces:
@@ -1468,7 +1494,7 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
                 continue  # a value, not a name
             if (t.upos == "PROPN" or t.form[:1].isupper()) and t.form.lower() not in known and \
                     not lexicon.match((lexicon.lemma_of(t.form),), KINDS):
-                return f"nenhum elemento se chama «{t.form}»"
+                return langs.msg("no_such_element", name=t.form)
     # a value phrase: a literal, or a "para/como/em ..." phrase that is not an element ("no botão" names a place)
     has_value = any(is_literal(t.form) for p in pieces for t in p.words) or any(
         p.case[-1:] and p.case[-1] in FRAMES["valor_casos"] and p.words and not _reference(p, world)[0]
@@ -1478,10 +1504,10 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
     names_prop = any(lexicon.match(p.lemmas, {"propriedade", "atributo"}) or set(p.lemmas) & label_words
                      for p in pieces if not _reference(p, world)[0])
     if names_prop and not has_value:
-        return "falta o valor (por exemplo: «... como 24px»)"
+        return langs.msg("missing_value")
     if not _in_frame(pred.lemma):
-        return f"não conheço o verbo «{pred.lemma}»"
-    return f"entendi o verbo «{pred.lemma}», mas não o que ele deve alterar"
+        return langs.msg("unknown_verb", verb=pred.lemma)
+    return langs.msg("verb_without_object", verb=pred.lemma)
 
 
 def _definition(tokens: list[Token], text: str, world: World, by: str) -> Understanding | None:
@@ -1679,10 +1705,10 @@ def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
     readings = _readings(tokens, world)
     if not readings or readings[0].cost > LIMIT:
         if readings and readings[0].unknown_verb:
-            why = f"não conheço o verbo «{readings[0].verb}»"  # not "the verb is outside frame X": that is internal
+            why = langs.msg("unknown_verb", verb=readings[0].verb)  # not "the verb is outside frame X": that is internal
         else:
             why = ("; ".join(readings[0].assumptions) if readings else "") or _why_nothing(tokens, world)
-        return Understanding(text, tokens, readings, "nao_entendi", f"Não entendi: {why}.")
+        return Understanding(text, tokens, readings, "nao_entendi", langs.msg("not_understood", why=why))
     best = readings[0]
     if best.unknown_verb:
         # the action itself was not understood: never executed, and no guess offered as if it were an answer
@@ -1697,22 +1723,21 @@ def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
             # vermelho"): that change is the likeliest meaning. It is carried out and said, and an undo teaches
             # (preferences) that it was not this.
             return Understanding(text, tokens, readings, "executar",
-                                 f"{best.paraphrase} (não conheço «{verb}»; entendi pelo resto da frase)")
+                                 langs.msg("unknown_verb_guess", what=best.paraphrase, verb=verb))
         infinitive = (_regular_infinitives(verb) or [verb])[0]
         return Understanding(text, tokens, readings, "perguntar",
-                             f"Não conheço o verbo «{infinitive}». O que ele deve fazer? "
-                             f"(ensine com «{infinitive} significa ...» seguido de um pedido que eu já entendo)")
+                             langs.msg("ask_unknown_verb", verb=infinitive))
     if best.ambiguous:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in best.ambiguous[:6])
-        return Understanding(text, tokens, readings, "perguntar", f"Qual deles: {names}?")
+        return Understanding(text, tokens, readings, "perguntar", langs.msg("which", names=names))
     rivals = [r for r in readings[1:] if r.cost - best.cost < 1.0 and r.constraints != best.constraints]
     if rivals:
-        options = " ou ".join(f"«{r.paraphrase}»" for r in [best] + rivals[:2])
-        return Understanding(text, tokens, readings, "perguntar", f"Você quer dizer {options}?")
+        options = langs.msg("or").join(f"«{r.paraphrase}»" for r in [best] + rivals[:2])
+        return Understanding(text, tokens, readings, "perguntar", langs.msg("did_you_mean", options=options))
     corroborated = any(not r.uncertain and r.constraints == best.constraints and r.cost - best.cost < 1.0
                        for r in readings[1:])
     if best.uncertain and not corroborated:
         why = f" ({best.assumptions[0]})" if best.assumptions else ""
         return Understanding(text, tokens, readings, "perguntar",
-                             f"Não tenho certeza{why}: entendi «{best.paraphrase}». É isso? (sim/não)")
+                             langs.msg("confirm", why=why, what=best.paraphrase))
     return Understanding(text, tokens, readings, "executar", best.paraphrase)

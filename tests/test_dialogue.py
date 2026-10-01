@@ -85,3 +85,25 @@ def test_dictionary_meanings(session):
     for text in ("pinte o título de vermelho", "esconda o botão", "sublinhe o parágrafo", "pinte a seção de azul"):
         a = session.ask(text)
         assert a.decision == "executado", (text, a.message)
+
+
+def test_english_conversation(session):
+    a = session.ask("make the title red")
+    assert a.decision == "executado" and a.message.startswith("Set"), a.message
+    b = session.ask("do the same to the paragraph")
+    assert b.decision == "executado", b.message
+
+
+def test_questions_about_the_page(builder):
+    from nucleo.assistant import Assistant
+
+    a = Assistant(builder)
+    for text in PAGE:
+        assert a.handle(text).ok
+    assert "título" in a.handle("o que tem na seção Topo?").text
+    assert a.handle("quantos botões tem?").text.startswith("Há 1")
+    assert "heading" in a.handle("what is in the Topo section?").text
+    assert a.handle("is there a footer?").text.startswith("There is no")
+    a.handle("deixe o título em negrito")
+    assert "bold" in a.handle("qual o peso da fonte do título?").text
+    assert a.handle("por que?").text.startswith("Fiz")

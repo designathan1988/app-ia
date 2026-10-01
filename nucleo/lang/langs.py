@@ -21,6 +21,9 @@ PROFILES = {
     "pt": {
         "catalog": "pt-BR.json",
         "of": "de",
+        "say": {"as": "como", "in": "em", "to": "para", "at": ", na posição", "with_text": "com o texto",
+                "with_name": "com o nome", "already": "(já está assim)", "element": "o elemento", "text": "texto",
+                "name": "nome", "attributes": "atributos"},
         "articles": {"o", "a", "os", "as", "um", "uma", "uns", "umas"},
         "article_forms": {"a", "o", "as", "os"},
         "definite": {"o", "a", "os", "as", "este", "esta", "esse", "essa", "aquele", "aquela"},
@@ -33,6 +36,9 @@ PROFILES = {
     "en": {
         "catalog": "en.json",
         "of": "of",
+        "say": {"as": "to", "in": "in", "to": "to", "at": ", at position", "with_text": "with the text",
+                "with_name": "named", "already": "(already so)", "element": "the element", "text": "text",
+                "name": "name", "attributes": "attributes"},
         "articles": {"the", "a", "an"},
         "article_forms": {"the", "a", "an"},
         "definite": {"the", "this", "that", "these", "those"},
@@ -173,3 +179,59 @@ def frame_verbs(frame_id: str, lang: str) -> frozenset:
         if first and concepts.concepts_of(first, lang, "v"):
             out.add(first)
     return frozenset(out)
+
+
+@lru_cache(maxsize=8)
+def action_word(action: str, lang: str) -> str:
+    """The verb the builder's own catalog uses, in a language, for an action: the first word of the label of the
+    command that performs it ("Insert {element}" -> insert; "Excluir" -> excluir)."""
+    import json
+    import pathlib
+
+    from ..builder.client import DEFAULT_BUILDER
+
+    keys = {"insert": "command.insertElement", "remove": "command.delete", "move": "command.moveTo",
+            "set": "command.setText"}
+    cat = json.loads((pathlib.Path(DEFAULT_BUILDER) / "src" / "i18n" / "locales" / profile(lang)["catalog"])
+                     .read_text(encoding="utf-8"))
+    label = cat.get(keys[action], action)
+    return (re.findall(r"[^\s{]+", label) or [action])[0].lower()
+
+
+MESSAGES = {
+    "pt": {
+        "not_understood": "Não entendi: {why}.", "no_verb": "não achei o verbo do pedido",
+        "no_such_element": "nenhum elemento se chama «{name}»",
+        "missing_value": "falta o valor (por exemplo: «... como 24px»)",
+        "unknown_verb": "não conheço o verbo «{verb}»",
+        "verb_without_object": "entendi o verbo «{verb}», mas não o que ele deve alterar",
+        "ask_unknown_verb": "Não conheço o verbo «{verb}». O que ele deve fazer? (responda com um pedido que eu já "
+                            "entendo, ou ensine com «{verb} significa ...»)",
+        "which": "Qual deles: {names}?", "did_you_mean": "Você quer dizer {options}?", "or": " ou ",
+        "confirm": "Não tenho certeza{why}: entendi «{what}». É isso? (sim/não)",
+        "unknown_verb_guess": "{what} (não conheço «{verb}»; entendi pelo resto da frase)",
+        "nothing_done": "Certo, nada foi feito.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
+        "learned": "Aprendi: «{verb}» = «{body}».", "same_again": "O mesmo: {what}",
+        "part_failed": "Nada foi feito: na parte «{part}»: {why}",
+    },
+    "en": {
+        "not_understood": "I did not understand: {why}.", "no_verb": "I found no verb in the request",
+        "no_such_element": "no element is called «{name}»",
+        "missing_value": "the value is missing (for example: «... to 24px»)",
+        "unknown_verb": "I do not know the verb «{verb}»",
+        "verb_without_object": "I understood the verb «{verb}», but not what it should change",
+        "ask_unknown_verb": "I do not know the verb «{verb}». What should it do? (answer with a request I already "
+                            "understand)",
+        "which": "Which one: {names}?", "did_you_mean": "Do you mean {options}?", "or": " or ",
+        "confirm": "I am not sure{why}: I understood «{what}». Is that right? (yes/no)",
+        "unknown_verb_guess": "{what} (I did not know «{verb}»; I understood it from the rest of the sentence)",
+        "nothing_done": "OK, nothing was done.", "no_plan": "I understood «{what}», but found no commands that do it.",
+        "learned": "Learned: «{verb}» = «{body}».", "same_again": "The same: {what}",
+        "part_failed": "Nothing was done: in the part «{part}»: {why}",
+    },
+}
+
+
+def msg(key: str, lang: str | None = None, **kw) -> str:
+    """A message of the system itself, in the conversation's language."""
+    return MESSAGES[lang or current()][key].format(**kw)
