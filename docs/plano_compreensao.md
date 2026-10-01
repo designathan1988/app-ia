@@ -190,6 +190,76 @@ Uma afirmação ("o site é de uma cafeteria", "o botão principal é o Assinar"
 | C5 | Textos: frases, coordenação, discurso entre frases; perguntas sobre a forma lógica; afirmações como fatos | parágrafos do congelado |
 | C6 | Troca: o motor novo assume, os 14 geradores e `_pieces` são removidos | portão da §4 |
 
+## 5a. Registro de C1 (feito) e projeto de C2–C3
+
+### C1: resultado medido
+- **X3** (`experiments/x3_kbest.py`): o feixe sobre as transições do analisador guloso **piora** a análise.
+
+  | Medida | UAS em inglês |
+  |---|---|
+  | Guloso | 83% |
+  | Feixe | 76% |
+  | Oráculo das 4 melhores | 82,5% |
+
+  O k-best ingênuo foi descartado.
+- **Robustez por edições locais** (`nucleo/lang/alternatives.py`): sobre a análise gulosa, gera alternativas por
+  dois tipos de edição, e o custo de cada alternativa é o número de edições.
+  - **Reetiquetar** uma palavra entre as categorias que os léxicos (MorphoBr, WordNets) lhe dão. Uma palavra
+    desconhecida é de classe aberta.
+  - **Religar** um ou dois dependentes na fronteira de ligação, mantendo a árvore projetiva; o rotulador dá a nova
+    relação.
+- **Regras UD na forma lógica** (`logic_form.py`):
+  - o sujeito controlado passa para o xcomp;
+  - o modal governa só um complemento verbal;
+  - um adjetivo ou particípio sob um verbo é resultado;
+  - um obj com preposição é obl, e um nominal sem preposição é obj.
+- **Testes:** `tests/test_logic_form.py` (estruturas em pt e en dentro de 2 edições).
+
+### C2: ancoragem por nó (`nucleo/lang/ground.py`)
+Cada nó da forma lógica recebe denotações tipadas com custo. O vocabulário vem de `grounding.meanings`, do léxico do
+catálogo e do índice de valores do W3C, nunca de listas no código.
+
+**Menção**
+- `Ref`: nós da página.
+  - Vem do tipo, do nome, do pronome (seleção ou discurso), do ordinal ou do universal.
+  - As frases ligadas restringem por contenção: "do cartão", "in the header".
+- `Kind`: um tipo a criar. Vem de um indefinido ou de algo dito novo.
+- `Prop`: uma propriedade ou um campo, com dono opcional dado pela frase "de/of" ligada. Rótulos de várias palavras
+  ("cor de fundo", "font size") casam sobre o núcleo, os modificadores e as frases ligadas.
+- `Val`: uma lista de (propriedade, valor). Vem de um valor nomeado ("negrito", "azul"), de um literal ("24px",
+  "#fff", texto entre aspas) ou de uma medida ("320px de largura": literal + propriedade).
+- `Place`: uma relação de lugar (dentro, antes, depois, início, fim) com âncora. A locução vem do perfil de língua
+  (`locais`): caso + núcleo + "de".
+
+**Predicado**
+- Evidência sobre os tipos de estado:
+  - pelo quadro: existir, remover, mover, estilo, texto, nome;
+  - pelo comando do builder;
+  - pelo par verbo → valor ("centralizar");
+  - pelos significados do grafo.
+- Um verbo de ligação ou cópula não dá preferência e deixa o estado ser decidido pelos argumentos.
+- Um verbo desconhecido dá evidência uniforme com custo; os argumentos podem decidir, e a decisão então é
+  confirmar.
+
+### C3: inferência do estado-resultado (`nucleo/lang/interpret.py`)
+Para cada análise alternativa e cada predicado, preenche os tipos de estado por **papéis tipados**:
+- `style(E, P, V)`: V pode vir de result, attr, um obl de valor ou o próprio obj; P de uma `Prop` ou do valor; E do
+  dono, do tema ou de um obl de lugar. Exige que V caiba em P (gramática W3C).
+- `command(E, C)`, `added(T, lugar)`, `removed(E)`, `moved(E, lugar)`, `field(E, texto|nome, literal)`.
+
+**Custo**
+- custo da análise + custo das denotações + desacordo com a evidência do verbo;
+- \+ cada nó com significado que fica sem uso (impede a execução);
+- \+ suposições de referente.
+
+**Decisão**
+- A menor leitura sem rival próximo de efeito diferente → executar.
+- Um rival próximo de efeito diferente → perguntar, com as alternativas.
+- Um verbo desconhecido com argumentos que decidem → confirmar.
+- Uma afirmação → fato, nunca execução.
+
+A saída são as mesmas restrições-objetivo do planejador atual, então a troca (C6) não muda o resto do sistema.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

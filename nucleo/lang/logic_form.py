@@ -211,52 +211,59 @@ def _value_or_mention(tok, kids):
 # -- the sentence -------------------------------------------------------------------------------------------------
 def build(tokens) -> Sentence:
     """The logical form of an analysed sentence (tokens with heads and relations)."""
-    from .understand import MODALS, _politeness
+    from .understand import MODALS
 
     kids = _children(tokens)
+    by_i = {t.i: t for t in tokens}
     roots = [t for t in tokens if t.head == 0]
     out = []
     for r in roots:
         act = "question" if any(t.form == "?" for t in tokens) else "request"
         top = r
-        # a modal or volitive head ("quero", "pode", "tem que", "should"): the act, and the predicate it governs
+        # a modal or volitive head ("quero", "pode", "tem que", "should", "I'd like"): the speaker wants a state or an
+        # act; the predicate is the verbal complement it governs (an infinitive; or a participle with its own copula,
+        # "to be centered"), never a noun: "quero o parágrafo sublinhado" is a wish about a state
         while top.lemma in MODALS and top.upos in ("VERB", "AUX"):
-            # it governs a verbal complement (an infinitive), never a noun or a participle: "quero o parágrafo
-            # sublinhado" is a wish about a state, "quero sublinhar o parágrafo" a wish about an act
+            if act == "request":
+                act = "wish"
             nxt = next((c for c in kids.get(top.i, []) if _base(c.deprel) in ("xcomp", "ccomp", "obj")
-                        and c.upos in ("VERB", "AUX") and not _participle(c)), None)
+                        and c.upos in ("VERB", "AUX", "ADJ")
+                        and (not _participle(c) and c.upos != "ADJ" or any(
+                            _base(x.deprel) in ("cop", "aux") for x in kids.get(c.i, [])))), None)
             if nxt is None:
                 break
-            act = "wish" if fold(top.lemma) in ("querer", "want", "like", "gostar", "precisar", "need") else \
-                ("obligation" if fold(top.lemma) in ("ter", "dever", "must", "have", "should") else act)
             top = nxt
         p = predicate(top, kids, tokens, act)
         if top is not r and not p.role("subj"):
-            # the subject of a modal or control verb is also the subject of the predicate it governs (UD xcomp)
-            p.roles += [(rl, w, x) for rl, w, x in predicate(r, kids, tokens, act).roles if rl == "subj"]
-        if top is not r and top.upos in ("ADJ", "NOUN", "PROPN") or \
-                any(_base(t.deprel) in ("aux",) and fold(t.lemma) in ("dever", "should", "must", "ter")
-                    for t in kids.get(top.i, [])):
-            if p.act == "request":
-                p.act = "obligation"
-        # a declarative with a subject and no request form is information
-        if p.act == "request" and p.role("subj") and _declarative(top, tokens):
+            # control (UD xcomp): the governed predicate's subject is the governing verb's object when it has one
+            # ("I need the paragraph to be centered"), else its subject ("o título tem que ficar azul")
+            gov = predicate(by_i[top.head] if top.head in by_i else r, kids, tokens, act)
+            ctl = [(rl, w, x) for rl, w, x in gov.roles if rl == "obj"] or                 [(rl, w, x) for rl, w, x in gov.roles if rl == "subj"]
+            p.roles += [("subj", w, x) for _, w, x in ctl]
+        if any(_base(t.deprel) == "aux" and t.lemma in MODALS for t in kids.get(top.i, [])) and p.act == "request":
+            p.act = "wish"  # "o título deve ser azul", "the button should be green"
+        # a statement: the subject before the verb (requests have none) and no prospective auxiliary or tense
+        if p.act == "request" and _declarative(top, tokens, kids, p):
             p.act = "assertion"
         out.append(p)
         out += p.conj
     return Sentence(tokens, out)
 
 
-def _declarative(top, tokens) -> bool:
-    """A sentence that states something: an indicative verb or a copula with a subject, no imperative form."""
+def _declarative(top, tokens, kids, p) -> bool:
+    """A sentence that states something: a subject before its verb (an imperative has no subject), in the present
+    or past, with no auxiliary (an auxiliary is prospective or modal: "vai ser", "will be")."""
     from .morph import analyses
 
-    if langs.current() == "en":
-        return top.upos in ("ADJ", "NOUN", "PROPN") or top.form.lower().endswith("s")
-    tags = [t for _, t in analyses(top.form.lower())]
-    imperative = any("+IMP" in t or "+SBJR" in t for t in tags)
-    return not imperative and any("+PRS" in t or "+FUT" in t or "+PRF" in t for t in tags) or \
-        top.upos in ("ADJ", "NOUN", "PROPN")
+    subj = [x for x in p.role("subj") if isinstance(x, Mention)]
+    if not subj or not any(t.i < top.i for m in subj for t in m.words):
+        return False
+    if any(_base(t.deprel) == "aux" for t in kids.get(top.i, [])):
+        return False
+    verb = next((t for t in kids.get(top.i, []) if _base(t.deprel) == "cop"), top)
+    if langs.current() != "en" and any("+FUT" in tg for _, tg in analyses(verb.form.lower())):
+        return False
+    return True
 
 
 def show(s: Sentence) -> str:

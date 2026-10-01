@@ -232,7 +232,7 @@ FRESH = [
 
 # fourth round, written after the third round's fixes and run once before any change
 FOURTH = [
-    ("bota o título em itálico e sublinhado", "perguntar"),
+    ("bota o título em itálico e sublinhado", S("font-style", "italic", "t")),  # and underline (coordination)
     ("quero que o parágrafo fique centralizado", S("text-align", "center", "p")),
     ("o botão precisa ficar vermelho", S("color", "red", "b")),
     ("seria possível deixar a seção com fundo preto?", S("background-color", "black", "s")),
@@ -307,7 +307,7 @@ SIXTH = [
     ("muda o texto do parágrafo pra Olá mundo", {"kind": "field", "field": "text", "value": "Olá mundo"}),
     ("a cor do título tem que ser vermelha", S("color", "red", "t")),
     ("deixa o título vermelho e o botão azul", "perguntar"),
-    ("põe o título em negrito e itálico", "perguntar"),
+    ("põe o título em negrito e itálico", S("font-weight", "bold", "t")),  # and italic (coordination)
     ("alinha tudo à esquerda", "perguntar"),
     ("apaga o primeiro parágrafo", {"kind": "removed", "id": "p"}),
     ("apaga a última imagem", {"kind": "removed", "id": "i"}),
@@ -335,6 +335,15 @@ SIXTH = [
 ]
 
 
+NOVO = "--novo" in sys.argv  # the rebuilt engine (nucleo/lang/interpret.py, plan C3)
+
+
+def interpret_understand(text, world):
+    from nucleo.lang.interpret import understand as new
+
+    return new(text, world)
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -348,7 +357,7 @@ def run(verbose: bool = False, cases=None) -> dict:
     world = World(nodes, [])
     counts = {"certo": 0, "perguntou": 0, "nao_entendeu": 0, "ERRADO": 0}
     for text, expected in (CASES if cases is None else cases):
-        u = understand(text, world)
+        u = (interpret_understand if NOVO else understand)(text, world)
         if expected == "perguntar":
             outcome = "certo" if u.decision != "executar" else "ERRADO"
         elif u.decision == "executar":

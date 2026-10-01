@@ -1,0 +1,547 @@
+"""C2 (docs/plano_compreensao.md §5a): grounding each node of the logical form in what the machine knows.
+
+A mention gets typed denotations, each with a cost (an assumption) and the tokens it explains:
+
+- ``ref``: nodes of the page (by name, type, pronoun, ordinal, universal; restricted by attached phrases, "do
+  cartão", "in the header");
+- ``kind``: an element type to create (an indefinite or something said new);
+- ``prop``: a property or a field, with an optional owner (the "de/of" phrase attached to it);
+- ``val``: (property, value) pairs: a named value ("negrito", "blue"), or a measure ("320px de largura");
+- ``lit``: a literal (a CSS-like value, a quoted text, a name);
+- ``place``: a relation (dentro, antes, depois, inicio, fim) with its anchor.
+
+A predicate gets evidence about the kinds of state it asks for (``verb_evidence``).
+
+The vocabulary is the data's: the builder's catalog (``lexicon``), the W3C value index (``values``), the concept
+graph and the dictionary (``grounding``), the language profile's closed classes (``langs``). Nothing here lists
+words of a language.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from functools import lru_cache
+
+from . import grounding, langs, lexicon
+from .logic_form import Mention, Predicate
+from .tokenize import is_literal, literal_value
+from .values import fold
+
+KINDS_LABELLED = {"tipo", "propriedade", "atributo", "campo", "estado", "breakpoint"}
+
+
+@dataclass(frozen=True)
+class Den:
+    kind: str  # ref | kind | prop | field | val | lit | place
+    data: object
+    cost: float = 0.0
+    words: frozenset = frozenset()  # token indices this denotation explains
+    notes: tuple = ()
+    ambiguous: bool = False  # a reference with several candidates that was not asked for
+
+
+# -- helpers --------------------------------------------------------------------------------------------------
+def _u():
+    from . import understand
+
+    return understand
+
+
+def _content(m: Mention) -> list:
+    """The mention's own content tokens (not determiners, case markers or attached phrases)."""
+    attached = {t.i for _, a in m.attached for t in a.words} | {t.i for c in m.conj for t in c.words}
+    prof = langs.profile()
+    return [t for t in m.words if t.i not in attached and t.upos not in ("DET", "ADP", "PUNCT", "CCONJ", "SCONJ")
+            and fold(t.form.lower()) not in prof["articles"]]
+
+
+def _lemmas(tokens) -> tuple:
+    return tuple(lexicon.lemma_of(t.form) for t in tokens)
+
+
+def _of_words() -> set:
+    prof = langs.profile()
+    return {prof["of"]} | ({prof["from"]} if prof.get("from") else set())
+
+
+@lru_cache(maxsize=8)
+def _places(lang: str) -> dict:
+    """Normalized place locutions -> relation: the profile's locutions without articles and without the final
+    "de/of" (which introduces the anchor)."""
+    from .understand import FRAMES
+
+    with langs.use(lang):
+        of = {fold(langs.profile()["of"])}
+        out = {}
+        for rel, locs in FRAMES["locais"].items():
+            for loc in locs:
+                key = tuple(w for w in _words(loc) if w not in of)
+                if key:
+                    out.setdefault(key, rel)
+        return out
+
+
+def _words(text: str) -> tuple:
+    """Folded words of a phrase, contractions expanded, articles left out (function words are not lemmatized)."""
+    from .tokenize import contractions
+
+    table = contractions()
+    out = []
+    for w in text.lower().split():
+        out += list(table.get(w, (w,)))
+    arts = langs.profile()["articles"]
+    return tuple(fold(w) for w in out if fold(w) not in arts and w not in arts)
+
+
+def place_relation(words: tuple) -> str | None:
+    return _places(langs.current()).get(tuple(fold(w) for w in words if w))
+
+
+def _case_words(case: str) -> tuple:
+    return _words(case) if case else ()
+
+
+# -- references -------------------------------------------------------------------------------------------------
+def _named(texts, world) -> list:
+    out = []
+    for nid, n in world.nodes.items():
+        name = (n["name"] or "").lower()
+        if name and any(x.lower() == name for x in texts):
+            out.append(nid)
+    return out
+
+
+def _types(tokens) -> list:
+    """Element types the tokens name: a catalog label (possibly of several words), else the head word's meanings in
+    the concept graph. (type, cost, explained token indices)."""
+    seq = _lemmas(tokens)
+    out = []
+    for start in range(len(seq)):
+        for e, n in lexicon.match(seq, {"tipo"}, start):
+            out.append((e.id, 0.0, frozenset(t.i for t in tokens[start:start + n])))
+        if out:
+            return out
+    for t in tokens:
+        if t.upos in ("NOUN", "PROPN", "X", "ADJ") and not is_literal(t.form):
+            for m in grounding.meanings(t.form, "N"):
+                if m.kind == "tipo" and m.cost <= 1.5:
+                    out.append((m.target, m.cost, frozenset({t.i})))
+            if out:
+                return out
+    return out
+
+
+def _descends(node, anchor, world) -> bool:
+    return _u()._descends(node, anchor, world)
+
+
+def references(m: Mention, world, restrict: bool = True) -> list[Den]:
+    """What page nodes a mention refers to."""
+    u = _u()
+    COST = u.COST
+    prof = langs.profile()
+    content = _content(m)
+    out = []
+    if m.det == "pronoun" or (content and fold(content[0].form.lower()) in prof["pronouns"]):
+        if world.selection:
+            out.append(Den("ref", tuple(world.selection), COST["referente_pela_selecao"],
+                           frozenset(t.i for t in content), ("o que está selecionado",)))
+        return out
+    if m.new:
+        return []  # something said to be new has no referent
+    texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
+    names = _named(texts + m.names, world)
+    types = _types(content)
+    cands: list = []
+    cost = 0.0
+    notes: tuple = ()
+    explained = set()
+    if names:
+        typed = [n for n in names if not types or any(world.nodes[n]["type"] == ty for ty, _, _ in types)]
+        cands = typed or names
+        cost = 0.0 if typed else COST["tipo_diferente_do_nome"]
+        explained |= {t.i for t in m.words if literal_value(t.form).lower() in
+                      {(world.nodes[n]["name"] or "").lower() for n in names}}
+        for _, _, ws in types:
+            explained |= ws
+    elif types:
+        # a definite phrase presupposes its referent (DRT): among the types the words can mean ("title": header or
+        # heading), those the page has
+        present = {v["type"] for v in world.nodes.values()}
+        types = [x for x in types if x[0] in present] or types
+        best = min(c for _, c, _ in types)
+        typs = [ty for ty, c, _ in types if c == best]
+        explained |= set().union(*(ws for ty, c, ws in types if c == best))
+        cands = [n for n, v in world.nodes.items() if v["type"] in typs]
+        cost = best
+    else:
+        return []
+    # attached phrases restrict by containment: "o título do cartão", "the image in the header"
+    for case, a in m.attached:
+        if not restrict:
+            break
+        sub = references(a, world)
+        if not sub:
+            continue
+        anchors = set(sub[0].data)
+        inside = [n for n in cands if any(_descends(n, x, world) for x in anchors)]
+        if inside:
+            cands = inside
+            explained |= set(sub[0].words) | {t.i for t in a.words if t.upos == "ADP"}
+            cost += sub[0].cost
+    # determiners and ordinals pick among the candidates
+    if m.ordinal is not None and cands:
+        k = m.ordinal
+        ordered = [n for n in world.nodes if n in cands]
+        if -len(ordered) <= k < len(ordered):
+            explained |= {t.i for t in m.words if fold(t.form.lower()) in prof["ordinals"]}
+            return [Den("ref", (ordered[k],), cost + COST["referente_por_tipo"], frozenset(explained), notes)]
+    if len(cands) == 1:
+        return [Den("ref", tuple(cands), cost + (0.0 if names else COST["referente_por_tipo"]), frozenset(explained),
+                    notes)]
+    if m.det == "universal":
+        explained |= {t.i for t in m.words if fold(t.form.lower()) in prof["universal"]}
+        return [Den("ref", tuple(cands), cost + COST["referente_por_tipo"], frozenset(explained), notes)]
+    sel = [n for n in cands if n in world.selection]
+    if len(sel) == 1:
+        return [Den("ref", tuple(sel), cost + COST["referente_por_tipo"], frozenset(explained),
+                    ("o selecionado entre vários",))]
+    if cands:
+        return [Den("ref", tuple(cands), cost + COST["referente_ambiguo"], frozenset(explained),
+                    (f"{len(cands)} candidatos",), ambiguous=True)]
+    return []
+
+
+# -- properties, values, literals, places -----------------------------------------------------------------------
+def _chain(m: Mention) -> list:
+    """The mention's content tokens followed by those of its "de/of" phrases, in order: the words a multiword label
+    can span ("cor de fundo", "tamanho da fonte")."""
+    out = list(_content(m))
+    for case, a in m.attached:
+        if fold(case) in _of_words():
+            out += [t for t in a.words if t.upos == "ADP" and t.head == a.head.i] + _chain(a)
+            break
+    return sorted(out, key=lambda t: t.i)
+
+
+def properties(m: Mention, world) -> list[Den]:
+    """Properties, attributes and fields the mention names, with the owner (a reference) when one is attached."""
+    from .understand import FRAMES
+
+    out = []
+    toks = _chain(m)
+    seq = _lemmas(toks)
+    for start in range(len(seq)):
+        for e, n in lexicon.match(seq, {"propriedade", "atributo", "campo"}, start):
+            ws = frozenset(t.i for t in toks[start:start + n])
+            if m.head.i in ws:
+                kind = "field" if e.kind == "campo" else "prop"
+                out.append(Den(kind, (e.kind, e.id), 0.0, ws))
+    campos = {fold(k): v for k, v in FRAMES["campos"].items()}
+    if fold(m.head.form.lower()) in campos or lexicon.lemma_of(m.head.form) in campos:
+        f = campos.get(fold(m.head.form.lower())) or campos[lexicon.lemma_of(m.head.form)]
+        out.append(Den("field", ("campo", f), 0.0, frozenset({m.head.i})))
+    if not out:
+        for g in grounding.meanings(m.head.form, "N"):
+            if g.kind == "propriedade" and g.cost <= 1.0:
+                out.append(Den("prop", ("propriedade", g.target), g.cost, frozenset({m.head.i})))
+            elif g.kind == "familia" and g.cost <= 1.0:
+                headed = _headed(m.head.form)
+                out.append(Den("prop", ("lista", headed) if headed else ("familia", g.target), g.cost,
+                               frozenset({m.head.i})))
+    # the owner: the first attached phrase not used by the label that refers to page nodes
+    res = []
+    for d in out:
+        owner = None
+        for case, a in m.attached:
+            if {t.i for t in a.words} <= d.words:
+                continue
+            refs = references(a, world)
+            if refs:
+                owner = refs[0]
+                break
+        data = d.data + ((owner,) if owner else (None,))
+        words = d.words | (owner.words if owner else frozenset())
+        res.append(Den(d.kind, data, d.cost + (owner.cost if owner else 0.0), words, d.notes,
+                       owner.ambiguous if owner else False))
+    return res
+
+
+def values(m: Mention) -> list[Den]:
+    """(property, value) pairs the mention's words name, and literals."""
+    from .values import index as value_index
+
+    out = []
+    ix = value_index()
+    content = _content(m)
+    # literals: CSS-like values, quoted texts
+    attached = {t.i for _, a in m.attached for t in a.words}
+    for t in m.words:
+        if is_literal(t.form) and t.i not in attached:
+            out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
+    words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
+    if not any(d.kind == "lit" for d in out) and len(words) > 1 and len(words) == len(content) and not m.attached \
+            and not any(ix.get(fold(lexicon.lemma_of(t.form))) or grounding.direct(t.form) for t in words):
+        # a phrase as said ("Olá mundo"): a text, when none of its words means something else
+        out.append(Den("lit", " ".join(t.form for t in words), 1.0, frozenset(t.i for t in words)))
+    if m.names and not any(d.kind == "lit" for d in out):
+        # a name said bare ("para Destaque", "to Hero"): a literal text as said
+        ws = frozenset(t.i for t in m.words if t.i not in attached and t.upos in ("PROPN", "X", "NOUN", "ADJ")
+                       and literal_value(t.form) in m.names)
+        names = [n for n in m.names if any(literal_value(t.form) == n and t.upos not in ("PART", "ADP", "SCONJ")
+                                           for t in m.words)]
+        if names:
+            out.append(Den("lit", " ".join(names), 0.5, ws or frozenset({m.head.i})))
+    ix = value_index()
+    if m.det == "indefinite":
+        content = []  # a phrase that introduces something ("uma cópia", "a copy") is not a value said
+    for t in content:
+        if is_literal(t.form):
+            continue
+        pairs = ix.get(fold(lexicon.lemma_of(t.form)), []) or ix.get(fold(t.form.lower()), [])
+        if pairs:
+            out.append(Den("val", tuple(pairs), 0.0, frozenset({t.i})))
+            continue
+        gs = [g for g in grounding.meanings(t.form, "A" if t.upos == "ADJ" else None) if g.kind == "valor"]
+        if gs:
+            best = min(g.cost for g in gs)
+            out.append(Den("val", tuple(g.target for g in gs if g.cost <= best + 0.5), best, frozenset({t.i})))
+    return out
+
+
+def measure(m: Mention, world) -> list[Den]:
+    """A literal and a property word in one phrase, whichever is the head: "320px de largura", "uma margem de
+    10px", "400px wide", "24px of margin" -> (property said, literal)."""
+    inner = [(c, a) for c, a in m.attached]
+    lits = [t for t in m.words if is_literal(t.form)]
+    if not lits:
+        return []
+    lit = lits[0]
+    out = []
+    sources = []
+    if not is_literal(m.head.form):
+        sources.append((m, frozenset()))  # the head names the property, the literal depends on it
+    for c, a in inner:
+        if not is_literal(a.head.form):
+            sources.append((a, frozenset(t.i for t in a.words if t.upos == "ADP")))
+    for src, extra in sources:
+        for d in properties(src, world) if src is not m else _bare_properties(m):
+            if d.kind != "prop":
+                continue
+            out.append(Den("measure", (d.data[0], d.data[1], literal_value(lit.form)), d.cost,
+                           d.words | {lit.i} | extra | {t.i for t in m.words if t.upos == "ADP" and t.head == lit.i}))
+    return out
+
+
+@lru_cache(maxsize=4096)
+def _headed_for(lemma: str, lang: str) -> tuple:
+    head_at = -1 if lang == "en" else 0  # the head of a label: "text colour" / "cor do texto"
+    return tuple(sorted({e.id for e in lexicon.load() if e.kind == "propriedade" and len(e.lemmas) >= 2
+                         and e.lemmas[head_at] == lemma}))
+
+
+def _headed(word: str) -> tuple:
+    """The properties whose label this word heads ("margem": margem superior, margem direita...)."""
+    return _headed_for(lexicon.lemma_of(word), langs.current())
+
+
+def _bare_properties(m: Mention) -> list[Den]:
+    """The properties the head itself names (no owner): for a measure whose literal depends on the property word."""
+    out = []
+    for g in grounding.meanings(m.head.form, None):
+        if g.kind == "propriedade" and g.cost <= 1.0:
+            out.append(Den("prop", ("propriedade", g.target), g.cost, frozenset({m.head.i})))
+        elif g.kind == "familia" and g.cost <= 1.0:
+            headed = _headed(m.head.form)
+            out.append(Den("prop", ("lista", headed) if headed else ("familia", g.target), g.cost,
+                           frozenset({m.head.i})))
+    seq = (lexicon.lemma_of(m.head.form),)
+    for e, n in lexicon.match(seq, {"propriedade"}):
+        out.append(Den("prop", ("propriedade", e.id), 0.0, frozenset({m.head.i})))
+    return out
+
+
+def place(case: str, m: Mention, world) -> list[Den]:
+    """A place said by a phrase: the relation and its anchor (page nodes)."""
+    cw = _case_words(case)
+    out = []
+    head = fold(m.head.form.lower())
+    # a place noun or adverb with its own anchor ("no fim da seção", "antes do título", "at the end of the card")
+    rel = place_relation(cw + (head,)) or place_relation((head,))
+    if rel:
+        anchor = None
+        for c2, a in m.attached:
+            refs = references(a, world)
+            if refs:
+                anchor = refs[0]
+                break
+        ws = frozenset({m.head.i} | {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i})
+        if anchor is not None:
+            out.append(Den("place", (rel, anchor.data), anchor.cost, ws | anchor.words |
+                           {t.i for _, a in m.attached for t in a.words if t.upos == "ADP"}, (), anchor.ambiguous))
+        elif rel in ("inicio", "fim"):
+            root = next((n for n, v in world.nodes.items() if v["parent"] is None), None)
+            if root is not None:
+                out.append(Den("place", (rel, (root,)), 0.5, ws, ("no início/fim da página",)))
+    # the case word alone is the relation and the mention its anchor ("no cabeçalho", "into the footer")
+    rel = place_relation(cw) if cw else None
+    if rel:
+        between = set(cw) & {fold(x) for x in langs.profile().get("between", set())}
+        for r in references(m, world):
+            ws = r.words | {m.head.i} | (frozenset(t.i for t in m.words) if between else frozenset())
+            out.append(Den("place", (rel, r.data), r.cost, ws, r.notes, r.ambiguous))
+    return out
+
+
+def kinds(m: Mention) -> list[Den]:
+    """An element type to create: an indefinite phrase or one said new."""
+    if m.det not in ("indefinite", "") and not m.new:
+        return []
+    out = []
+    prof = langs.profile()
+    for ty, c, ws in _types(_content(m)):
+        newness = {t.i for t in m.words if fold(t.form.lower()) in prof["new"]}
+        out.append(Den("kind", ty, c, ws | newness))
+    return out
+
+
+def ground(m: Mention, world) -> list[Den]:
+    """All typed denotations of a mention, cheapest first."""
+    out = references(m, world) + kinds(m) + properties(m, world) + values(m) + measure(m, world)
+    seen, uniq = set(), []
+    for d in sorted(out, key=lambda d: d.cost):
+        k = (d.kind, repr(d.data))
+        if k not in seen:
+            seen.add(k)
+            uniq.append(d)
+    return uniq
+
+
+# -- predicates ---------------------------------------------------------------------------------------------------
+@dataclass
+class Evidence:
+    """What a verb says about the state asked for: a cost per kind of state (lower = more expected), the commands it
+    names, the (property, value) pairs it names itself ("centralizar"), the properties its meaning is about
+    ("alinhar": alignment), and the particle tokens that are part of it ("jogar fora", "get rid of")."""
+    kinds: dict = field(default_factory=dict)
+    commands: list = field(default_factory=list)
+    pairs: list = field(default_factory=list)
+    props: dict = field(default_factory=dict)
+    known: bool = True
+    light: bool = False  # a light, copular or volitive verb: the arguments decide
+    lemma: str = ""
+    particles: frozenset = frozenset()
+
+
+STATE_OF_FRAME = {"existir": "added", "remover": "removed", "mover": "moved", "estilo": "style",
+                  "estilo_por_valor": "style", "texto": "field:text", "escrever": "field:text", "nome": "field:name",
+                  "renomear": "field:name", "atributo": "field:attributes"}
+ALL_STATES = ("style", "command", "added", "removed", "moved", "field:text", "field:name", "field:attributes")
+GRAPH_LIMIT = 2.0
+
+
+def _verb_candidates(p: Predicate, tokens) -> list[tuple[str, frozenset]]:
+    """(lemma, particle tokens) the predicate's verb can be: a verb with the particle after it that the lexicon
+    lexicalizes together ("jogar fora", "throw away", "get rid of"); its lemma and homographs; the infinitives a
+    form unknown to the morphology has by the regular conjugation ("deleta" -> deletar)."""
+    from . import concepts
+
+    u = _u()
+    out = []
+    if tokens:
+        k = next((i for i, t in enumerate(tokens) if t.i == p.head.i), None)
+        for n in (2, 1):
+            tail = tokens[k + 1:k + 1 + n] if k is not None else []
+            if len(tail) != n or tail[0].upos not in ("ADV", "ADP", "PART", "ADJ", "NOUN"):
+                continue
+            phrase = " ".join([p.lemma] + [t.form.lower() for t in tail])
+            if concepts.concepts_of(phrase, langs.current(), "v"):
+                out.append((phrase, frozenset(t.i for t in tail)))
+    out += [(lem, frozenset()) for lem in [p.lemma] + list(getattr(p.head, "alts", ()))]
+    if langs.current() == "pt":
+        out += [(lem, frozenset()) for lem in u._regular_infinitives(p.head.form)]
+    seen, uniq = set(), []
+    for lem, parts in out:
+        if lem not in seen:
+            seen.add(lem)
+            uniq.append((lem, parts))
+    return uniq
+
+
+def _from_lexicon(lem: str, ev: Evidence) -> None:
+    """The verb's frames, the builder commands it labels and the values its participle names."""
+    u = _u()
+    from . import command_verbs
+    from .builder_commands import FRAME_COMMANDS
+
+    for f in u.FRAMES["quadros"]:
+        if u._in_frame(lem, f):
+            st = STATE_OF_FRAME.get(f["id"])
+            if st:
+                ev.kinds[st] = 0.0
+    for cv in command_verbs.table().get(lem, []):
+        if cv.command in FRAME_COMMANDS.values():
+            continue  # the command that performs a frame's change ("Excluir"): that change is the state itself
+        ev.commands.append(cv)
+        ev.kinds["command"] = 0.0
+    if not ev.kinds:
+        # a verb named after a value's participle ("centralizar": centralizado) - only for verbs outside the
+        # frames: a frame verb's participle ("deixado") names nothing about the change
+        for pr in u._verb_value_pairs(lem):
+            ev.pairs.append(pr)
+            ev.kinds["style"] = 0.0
+
+
+def _from_graph(lem: str, ev: Evidence, only_props: bool = False) -> None:
+    """What the verb means for the machine through the concept graph and the dictionary. A CSS keyword reached
+    from a verb this way ("descer" ~ cursor: move) is too indirect to be the value said: it only says the change is
+    a style."""
+    u = _u()
+    from . import command_verbs
+    from .builder_commands import FRAME_COMMANDS
+
+    for g in grounding.meanings(lem, "V"):
+        if g.cost > GRAPH_LIMIT:
+            continue
+        if g.kind in ("propriedade",) and g.cost <= 1.5:
+            ev.props[g.target] = min(ev.props.get(g.target, 9.0), g.cost)
+        if only_props:
+            continue
+        if g.kind == "comando":
+            for verbs in command_verbs.table().values():
+                for cv in verbs:
+                    if cv.command == g.target and not cv.rest and cv not in ev.commands and                             cv.command not in FRAME_COMMANDS.values():
+                        ev.commands.append(cv)
+            if ev.commands:
+                ev.kinds["command"] = min(ev.kinds.get("command", 9.0), g.cost)
+        elif g.kind in ("verbo", "acao"):
+            for f in u.FRAMES["quadros"]:
+                if u._in_frame(g.target, f) or f["id"] == g.target:
+                    st = STATE_OF_FRAME.get(f["id"])
+                    if st:
+                        ev.kinds[st] = min(ev.kinds.get(st, 9.0), g.cost)
+        elif g.kind in ("valor", "propriedade", "familia"):
+            ev.kinds["style"] = min(ev.kinds.get("style", 9.0), g.cost + (1.0 if g.kind == "valor" else 0.0))
+
+
+def verb_evidence(p: Predicate, tokens=None) -> Evidence:
+    u = _u()
+    ev = Evidence(lemma=p.lemma)
+    if p.kind == "state" or p.lemma in u.COPULAS or p.lemma in u.MODALS:
+        # a copula, or a volitive with no verbal complement ("quero o título azul", "I'd like it in bold"): the
+        # state is what the arguments say
+        ev.light = True
+        ev.kinds = {"style": 0.0, "field:text": 0.5, "field:name": 0.5, "added": 1.0}
+        return ev
+    for lem, parts in _verb_candidates(p, tokens):
+        _from_lexicon(lem, ev)
+        if not ev.kinds:
+            _from_graph(lem, ev)
+        if ev.kinds:
+            ev.lemma, ev.particles = lem, parts
+            _from_graph(lem, ev, only_props=True)
+            break
+    if not ev.kinds:
+        ev.known = False
+        ev.kinds = {s: u.COST["verbo_fora_do_quadro"] for s in ALL_STATES}
+    return ev
