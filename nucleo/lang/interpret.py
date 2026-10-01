@@ -108,7 +108,8 @@ def _value_case(case: str) -> bool:
 def _case_tokens(m: lf.Mention) -> set:
     if m is None:
         return set()
-    return {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i}
+    return {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i and
+            t.deprel.split(":")[0] in ("case", "mark", "fixed")}
 
 
 @dataclass
@@ -707,6 +708,26 @@ def interpretations(text: str, world, ctx: Context | None = None) -> list[Interp
     return sorted(out, key=lambda i: i.cost)
 
 
+CLAUSE_SPLIT = 1.0  # reading a comma as the end of a clause the parser did not end
+
+
+def _clauses(sentence: str) -> list[str]:
+    """The comma-separated parts of a sentence (not inside quotes), each a possible clause."""
+    parts, buf, quote = [], "", None
+    for ch in sentence:
+        if ch in "\"“”" and quote is None:
+            quote = "”" if ch == "“" else ch
+        elif quote is not None and ch == quote:
+            quote = None
+        if ch == "," and quote is None:
+            parts.append(buf)
+            buf = ""
+            continue
+        buf += ch
+    parts.append(buf)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def u_limit() -> float:
     return _u().LIMIT
 
@@ -742,7 +763,30 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         work = _world_with(world, Context())
         results = []
         for sent in sentences:
+            segs = _clauses(sent)
             its = interpretations(sent, work, ctx)
+            if len(segs) > 1:
+                # the parser may join clauses a comma separates ("me faz um favor, centraliza o parágrafo"): each
+                # clause on its own is another reading of the sentence, at the cost of the split
+                parts, c2, total = [], ctx, CLAUSE_SPLIT * (len(segs) - 1)
+                for seg in segs:
+                    seg_its = interpretations(seg, work, c2)
+                    if not seg_its:
+                        parts = None
+                        break
+                    parts.append((seg, seg_its))
+                    total += seg_its[0].cost
+                    c2 = seg_its[0].context or c2
+                if parts and (not its or total < its[0].cost):
+                    rs = [_decide(seg, seg_its, work, lang) for seg, seg_its in parts]
+                    acting = [r for r in rs if r.decision != "fato"]
+                    if acting and all(r.decision == "executar" for r in acting):
+                        cons = [c for r in acting for c in r.best.constraints]
+                        best = u.Reading("texto", cons, total, [], u.paraphrase(cons, world))
+                        results.append(u.Understanding(sent, [t for r in rs for t in r.tokens], [best], "executar",
+                                                       best.paraphrase, lang))
+                        ctx = c2
+                        continue
             r = _decide(sent, its, work, lang)
             results.append(r)
             if its:

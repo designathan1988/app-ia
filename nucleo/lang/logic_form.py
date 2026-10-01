@@ -123,9 +123,11 @@ def mention(tok, kids) -> Mention:
                 m.names.append(literal_value(c.form))
             else:
                 m.mods.append(c)
-        elif rel in ("flat", "appos") or rel == "nmod" and c.upos == "PROPN" and not _case_of(c, kids):
+        elif rel == "flat" or rel in ("appos", "nmod") and c.upos == "PROPN" and not _case_of(c, kids) or \
+                rel == "appos" and not _case_of(c, kids) and not kids.get(c.i):
+            # (an apposition has no preposition: "do parágrafo" labelled appos is a modifier, kept with its phrase)
             m.names.append(literal_value(c.form) if is_literal(c.form) else c.form)
-        elif rel in ("nmod", "obl", "acl"):
+        elif rel in ("nmod", "obl", "acl", "appos"):
             m.attached.append((_case_of(c, kids), mention(c, kids)))
         elif rel == "conj" and c.upos in ("NOUN", "PROPN", "PRON"):
             m.conj.append(mention(c, kids))

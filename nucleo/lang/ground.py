@@ -114,17 +114,20 @@ def _named(texts, world) -> list:
     return out
 
 
-def _types(tokens) -> list:
-    """Element types the tokens name: a catalog label (possibly of several words), else the head word's meanings in
-    the concept graph. (type, cost, explained token indices)."""
+def _types(tokens, head=None) -> list:
+    """Element types the tokens name: a catalog label (possibly of several words) that includes the phrase's head,
+    else the head word's meanings in the concept graph (a modifier does not give the type: "the title paragraph"
+    is a title). (type, cost, explained token indices)."""
     seq = _lemmas(tokens)
     out = []
     for start in range(len(seq)):
         for e, n in lexicon.match(seq, {"tipo"}, start):
-            out.append((e.id, 0.0, frozenset(t.i for t in tokens[start:start + n])))
+            span = tokens[start:start + n]
+            if head is None or any(t.i == head.i for t in span):
+                out.append((e.id, 0.0, frozenset(t.i for t in span)))
         if out:
             return out
-    for t in tokens:
+    for t in tokens if head is None else [t for t in tokens if t.i == head.i]:
         # (a proper name is no common noun: "Promoção" names something, it is not the type "progress")
         if t.upos in ("NOUN", "X", "ADJ") and not is_literal(t.form) and not (t.form[:1].isupper() and t.i > 1):
             for m in grounding.meanings(t.form, "N"):
@@ -157,7 +160,7 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
         return []  # something said to be new has no referent
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
     names = _named(texts + m.names, world)
-    types = _types(content)
+    types = _types(content, m.head)
     cands: list = []
     cost = 0.0
     notes: tuple = ()
@@ -256,7 +259,8 @@ def properties(m: Mention, world) -> list[Den]:
                 headed = _headed(m.head.form)
                 out.append(Den("prop", ("lista", headed) if headed else ("familia", g.target), g.cost,
                                frozenset({m.head.i})))
-    # the owner: the first attached phrase not used by the label that refers to page nodes
+    # the owner: the first attached phrase not used by the label that refers to page nodes; or a noun modifier that
+    # names an element ("the paragraph font", "the button text": English noun compounds)
     res = []
     for d in out:
         owner = None
@@ -267,6 +271,13 @@ def properties(m: Mention, world) -> list[Den]:
             if refs:
                 owner = refs[0]
                 break
+        if owner is None:
+            for t in m.mods:
+                if t.upos in ("NOUN", "PROPN") and t.i not in d.words:
+                    refs = references(Mention(t, [t]), world)
+                    if refs:
+                        owner = refs[0]
+                        break
         data = d.data + ((owner,) if owner else (None,))
         words = d.words | (owner.words if owner else frozenset())
         res.append(Den(d.kind, data, d.cost + (owner.cost if owner else 0.0), words, d.notes,
@@ -427,7 +438,7 @@ def kinds(m: Mention) -> list[Den]:
         return []
     out = []
     prof = langs.profile()
-    for ty, c, ws in _types(_content(m)):
+    for ty, c, ws in _types(_content(m), m.head):
         newness = {t.i for t in m.words if fold(t.form.lower()) in prof["new"]}
         out.append(Den("kind", ty, c, ws | newness))
     return out
@@ -479,7 +490,7 @@ STATE_OF_FRAME = {"existir": "added", "remover": "removed", "mover": "moved", "e
                   "estilo_por_valor": "style", "texto": "field:text", "escrever": "field:text", "nome": "field:name",
                   "renomear": "field:name", "atributo": "field:attributes"}
 ALL_STATES = ("style", "command", "added", "removed", "moved", "field:text", "field:name", "field:attributes")
-GRAPH_LIMIT = 2.5
+GRAPH_LIMIT = 3.0
 
 
 def _verb_candidates(p: Predicate, tokens) -> list[tuple[str, frozenset]]:
