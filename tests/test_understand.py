@@ -202,3 +202,21 @@ def test_universal_quantifier_applies_to_each():
     u = understand("deixe todos os títulos vermelhos", World.from_document(load_fixture("aurora"), []))
     assert u.decision == "executar"
     assert {c["id"] for c in u.best.constraints} == {"n-title", "n-card-a-title", "n-card-b-title"}
+
+
+def test_comparatives_compute_from_the_current_value():
+    doc = load_fixture("aurora")
+    doc["pages"][0]["tree"]["children"][0]["children"][0]["styles"] = {"desktop": {"base": {"font-size": "32px"}}}
+    world = World.from_document(doc, [])
+    u = understand("make the title Title bigger", world)
+    assert u.decision == "executar" and u.best.constraints[0]["value"] == "40px"
+    u = understand("diminua a fonte do título Title", world)
+    assert u.decision == "executar" and u.best.constraints[0]["value"] == "26px"
+    # no current value: nothing to compute from, so it asks
+    assert understand("aumente a fonte do parágrafo Intro", world).decision == "perguntar"
+
+
+def test_participle_of_a_command_verb_is_its_state():
+    u = understand("deixa todos os parágrafos escondidos", World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar"
+    assert {c["command"] for c in u.best.constraints} == {"element.toggleHidden"} and len(u.best.constraints) == 4

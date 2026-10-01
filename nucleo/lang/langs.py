@@ -22,6 +22,9 @@ PROFILES = {
         "catalog": "pt-BR.json",
         "of": "de",
         "universal": {"todo", "toda", "todos", "todas", "cada"},
+        # degree: comparison words and the verbs of changing an amount (closed class)
+        "more": {"maior", "maiores", "mais", "aumentar", "ampliar", "crescer", "engrossar"},
+        "less": {"menor", "menores", "menos", "diminuir", "reduzir", "encolher", "afinar"},
         "new": {"novo", "nova", "novos", "novas", "outro", "outra", "outros", "outras", "mais"},
         "informal": {"pro": ["para", "o"], "pra": ["para", "a"], "pros": ["para", "os"], "pras": ["para", "as"],
                      "num": ["em", "um"], "numa": ["em", "uma"], "nuns": ["em", "uns"], "numas": ["em", "umas"]},
@@ -43,6 +46,8 @@ PROFILES = {
         "catalog": "en.json",
         "of": "of",
         "universal": {"all", "every", "each"},
+        "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
+        "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},
         "new": {"new", "another", "extra", "more", "additional"},
         "ordinals": {"first": 0, "second": 1, "third": 2, "fourth": 3, "last": -1, "penultimate": -2},
         "say": {"as": "to", "in": "in", "to": "to", "at": ", at position", "with_text": "with the text",
@@ -224,6 +229,8 @@ MESSAGES = {
         "nothing_done": "Certo, nada foi feito.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
         "learned": "Aprendi: «{verb}» = «{body}».", "same_again": "O mesmo: {what}",
         "part_failed": "Nada foi feito: na parte «{part}»: {why}",
+        "ask_amount": "{prop} de «{name}» não tem valor definido para eu aumentar ou diminuir: qual valor? "
+                      "(por exemplo: «... para 24px»)",
     },
     "en": {
         "not_understood": "I did not understand: {why}.", "no_verb": "I found no verb in the request",
@@ -239,6 +246,8 @@ MESSAGES = {
         "nothing_done": "OK, nothing was done.", "no_plan": "I understood «{what}», but found no commands that do it.",
         "learned": "Learned: «{verb}» = «{body}».", "same_again": "The same: {what}",
         "part_failed": "Nothing was done: in the part «{part}»: {why}",
+        "ask_amount": "The {prop} of «{name}» has no value set for me to make bigger or smaller: which value? "
+                      "(for example: «... to 24px»)",
     },
 }
 

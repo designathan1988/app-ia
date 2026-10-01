@@ -424,7 +424,8 @@ class World:
         def walk(n, parent, index):
             nodes[n["id"]] = {"name": n.get("name"), "type": n.get("type"), "parent": parent, "index": index,
                               "children": [c["id"] for c in n.get("children", [])],
-                              "flags": {k: v for k, v in n.items() if isinstance(v, bool)}}
+                              "flags": {k: v for k, v in n.items() if isinstance(v, bool)},
+                              "styles": n.get("styles") or {}}
             for i, c in enumerate(n.get("children", [])):
                 walk(c, n["id"], i)
 
@@ -803,6 +804,9 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     for r in extra:
         r.verb = pred.lemma
         out.append(r)
+    for r in _comparative_readings(tokens, pred, pieces, world):
+        r.verb = pred.lemma
+        out.append(r)
     if any(f["id"] == "remover" for f in frames):
         for r in _value_removal_readings(pieces, world):
             r.verb = pred.lemma
@@ -869,6 +873,69 @@ def _light_verb_readings(pred: Token, pieces: list[Piece], world: World) -> list
 
 
 KINDS = {"tipo", "propriedade", "atributo", "estado", "breakpoint"}
+
+
+COMPARATIVE_STEP = 1.25  # "maior" / "bigger" without a number: one step of the usual type scale (major third)
+
+
+def _comparative_readings(tokens: list[Token], pred: Token, pieces: list[Piece], world: World) -> list[Reading]:
+    """ "deixe a fonte do título maior", "make the title bigger", "aumente a margem da seção": a change of amount
+    without a number. The new value is computed from the element's current value (one step up or down); when the
+    document does not say what it is, there is nothing to compute from, and the reading asks for the number."""
+    prof = langs.profile()
+    words = {fold(t.form.lower()) for t in tokens} | {fold(pred.lemma)}
+    more, less = bool(words & prof["more"]), bool(words & prof["less"])
+    if more == less or any(is_literal(t.form) for t in tokens):
+        return []
+    factor = COMPARATIVE_STEP if more else 1 / COMPARATIVE_STEP
+    out = []
+    for k, p in enumerate(pieces):
+        span = _span_match(pieces, k, {"propriedade"}) if p.lemmas else None
+        candidates = []
+        if span is not None:
+            candidates = [span[0].id]
+            explained_k = span[1]
+            numeric = ("length", "length-percentage", "number", "integer")
+            types = values_mod._builder_properties()
+            if types.get(span[0].id, {}).get("valueType") not in numeric:
+                # "a fonte maior": an amount of that family ("tamanho da fonte"), not the typeface
+                said = span[0].lemmas
+                alt = [e.id for e in lexicon.load() if e.kind == "propriedade" and e.id != span[0].id and
+                       any(e.lemmas[i:i + len(said)] == said for i in range(len(e.lemmas))) and
+                       types.get(e.id, {}).get("valueType") in numeric]
+                candidates = alt[:1] or candidates
+        for j, q in enumerate(pieces):
+            if j == k and span is None:
+                ref, c, notes, ex = _reference(q, world)
+            elif j != k and (q.case[:1] == _OF() or span is None):
+                ref, c, notes, ex = _reference(q, world)
+            else:
+                continue
+            if len(ref) != 1:
+                continue
+            node = ref[0]
+            props = candidates or (["font-size"] if _property_facts()[1].get(world.nodes[node]["type"]) == "text"
+                                   else ["width"])
+            prop = props[0]
+            current = ((world.nodes[node].get("styles") or {}).get(world.layer[0]) or {}).get(world.layer[1], {}).get(prop)
+            m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(px|rem|em|%)", str(current or ""))
+            used = {j} | ({k} if span is not None else set())
+            explained = {j: ex, **({k: explained_k} if span is not None else {})}
+            cost = c + _unexplained(pieces, used, explained) - sum(
+                1.0 for q2 in pieces for t in q2.words if fold(t.form.lower()) in prof["more"] | prof["less"])
+            if m is None:
+                r = Reading("estilo", [], max(cost, 0.0), [f"{_label('propriedade', prop)}: sem valor atual"], "")
+                r.ask_value = (node, prop)
+                out.append(r)
+                continue
+            n, unit = float(m.group(1)), m.group(2)
+            new = round(n * factor, 2 if unit in ("rem", "em") else 0)
+            value = f"{int(new) if unit in ('px', '%') else new}{unit}"
+            cons = [{"kind": "style", "id": node, "breakpoint": world.layer[0], "state": world.layer[1],
+                     "property": prop, "value": value}]
+            out.append(Reading("estilo", cons, max(cost, 0.0), [f"{current} → {value}"], paraphrase(cons, world)))
+            break
+    return out
 
 
 def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
@@ -1038,6 +1105,24 @@ def _value_candidates(piece: Piece, node_type: str | None) -> list[tuple[str, st
     value lexicon induced from MDN; cheaper when the property applies to the element and is an essential one."""
     return [(prop, value, _prior(prop, node_type)) for lem in _common_lemmas(piece)
             for prop, value in value_index().get(lem, [])]
+
+
+def _participle_commands(piece: Piece) -> list:
+    """Commands whose verb has the piece's only word as its participle ("escondidas" <- esconder -> Ocultar)."""
+    words = [t for t in piece.words if not is_literal(t.form)]
+    if len(words) != 1:
+        return []
+    form = words[0].form.lower()
+    if langs.current() == "pt":
+        from .morph import analyses
+
+        verbs = [lem for lem, tags in analyses(form) if tags.startswith("V+PTPST")]
+    else:
+        verbs = [langs.english_lemma(form, "VERB")] if form.endswith(("ed", "en", "den")) else []
+    out = []
+    for v in verbs:
+        out += [cv for cv in command_verbs.table().get(v, []) if not cv.rest]
+    return out[:1]
 
 
 def _value_words(piece: Piece, prop: str, value: str) -> int:
@@ -1542,6 +1627,20 @@ def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
             if len(rest_w) > n_:
                 options.append((j, Piece((), rest_w[n_:])))
         for j, q in options:
+            # a state named by the participle of a command's verb ("as imagens escondidas", "the button hidden"): that
+            # command on the element
+            for cv in _participle_commands(q):
+                used = {k, rp, j} | set(within)
+                explained = {k: len(p.lemmas)} if rp != k else {}
+                explained.update(within)
+                explained[rp] = ex + (len(q.lemmas) if j == rp else 0)
+                if j != rp:
+                    explained[j] = within.get(j, 0) + len(q.lemmas)
+                cons = [{"kind": "command", "command": cv.command, "id": node, "label": cv.label,
+                         "already": bool(cv.flag) and world.nodes[node].get("flags", {}).get(cv.flag) is True}]
+                cost = c + 0.5 + _unexplained(pieces, used, explained)
+                readings.append(Reading(f"comando:{cv.command}", cons, cost, list(notes), paraphrase(cons, world),
+                                        ambiguous=amb))
             for prop, value, vc in _value_candidates(q, world.nodes[node]["type"]):
                 used = {k, rp, j} | set(within)
                 explained = {k: len(p.lemmas)} if rp != k else {}
@@ -1912,6 +2011,11 @@ def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
         infinitive = (_regular_infinitives(verb) or [verb])[0]
         return Understanding(text, tokens, readings, "perguntar",
                              langs.msg("ask_unknown_verb", verb=infinitive))
+    if getattr(best, "ask_value", None):
+        node, prop = best.ask_value
+        return Understanding(text, tokens, readings, "perguntar",
+                             langs.msg("ask_amount", prop=_label("propriedade", prop).lower(),
+                                       name=world.nodes[node]["name"] or node))
     universal = langs.profile()["universal"]
     if best.ambiguous and any(fold(t.form.lower()) in universal for t in tokens):
         # "todos os títulos", "all the headings": the same change for each one
