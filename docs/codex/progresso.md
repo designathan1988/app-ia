@@ -3,13 +3,54 @@
 Formato no `AGENTS.md` §7. A entrada mais nova fica no topo. Cada entrada tem o commit, o comando exato da medida e
 os números.
 
-Direção vigente (2026-10-01, Revisão 4 e decisão direta do usuário): o implementador escolhe técnicas e ordem,
-inclusive mudanças de arquitetura justificadas por medidas. Estão revogados o prazo de 2 horas, as ordens de
-método e o critério de aceite das revisões anteriores. Permanecem todas as restrições de integridade.
-Mudança de rumo: priorizar defeitos de aprendizagem demonstrados por testes, começando pela consistência dos
-traços; as tentativas de referências não serão reaplicadas automaticamente. A evidência medida decidirá.
+Direção vigente: instrução definitiva do usuário de 2026-10-01, registrada em `AGENTS.md` §0. A missão continua
+após a reprovação A1: dados novos, generalização lexical/composicional, medidas externas e web com execução
+calibrada, opções e aprendizado. O TEST A1 está consumido e o DEV antigo não orienta novos ajustes. Portões
+reprovados não são condição de parada; as restrições de integridade permanecem.
 
 ---
+
+### 2026-10-01 18:15: resultado A1, missão definitiva e definição de pronto automatizada
+- Verificação automática: `C:\ctv\n\Scripts\python.exe -m pytest -q tests --ignore=tests/test_web.py -o addopts= --junitxml=C:\Codex-Shared\nucleo\data\cache\verificar-20261001T213724Z-81120e05-pytest.xml` → 318 testes; 318 passaram, 0 falhas, 0 erros, 0 pulados. Comprovante: `C:/Codex-Shared/nucleo/data/cache/verificar-20261001T213724Z-81120e05.json`.
+- Commit: este commit — Report failed A1 gate and enforce verified commits
+- O que mudou: `docs/codex/relatorio_a1.md` registra o portão completo, categorias, idiomas, execução,
+  ablações, custos e hashes. `AGENTS.md` §0 registra a missão definitiva e §9 os checks antes de cada commit.
+  O topo da especificação preserva essa direção posterior. `scripts/verificar.py`
+  valida fontes congeladas, diário, diferenças, suíte inteira e auditoria quando o motor muda; registra os
+  números reais da suíte no diário e confere depois os arquivos/blobs exatos do índice. Nenhum código do motor
+  foi alterado depois do portão.
+- Motivo: o DEV chegou a 95,0% de cand@10, mas o TEST mostrou generalização insuficiente. A mudança de rumo
+  será atacar dados e generalização lexical, sem remendo ou nova rodada do TEST e sem polir o DEV antigo.
+  A instrução definitiva revogou a parada por reprovação e autorizou novos dados externos/canônicos separados.
+  A definição de pronto evita publicação com verificação parcial ou diário separado.
+- Medida: `(Get-Process -Id $PID).PriorityClass = 'BelowNormal'; $env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe experiments/a1/avaliar.py | Tee-Object -FilePath data/cache/a1_portao.log`
+  → execução única, 1.886 s, 6 épocas, 301 updates e 59 early updates; nenhum gold inválido.
+  TEST n=189: cand@1/3/5/10 **46,6 / 58,2 / 63,0 / 67,2**; rank@1/3/5 **50,3 / 62,4 / 67,2**;
+  IR/ação/estado **49,2 / 49,7 / 50,8**. DEV na mesma execução: cand@10 **95,0**, rank@1 e
+  IR/ação/estado **81,7**. HOLDOUT n=51: cand@10 **76,5**, rank@1 **56,9**, IR/ação/estado **58,8**.
+- Diagnóstico: 19 exemplos TEST sem ouro gerado, 43 com ouro gerado fora do Top-10; 96 falhas de IR,
+  das quais 77 apesar da presença do ouro. Coordenação e comandos compostos: 16 exemplos, ouro gerado em
+  todos, nenhum plano final correto. Vocabulário não visto (n=97): cand@10 47,4 e rank@1 35,1.
+  Categorias responsáveis: candidate generation, ranking, lexical induction/morphology, syntax/composition,
+  discourse/context; limitações de schema e associação de slots documentadas sem novo ajuste pelo TEST.
+- Condições: latência sem perfilador medida separadamente no DEV aquecido (n=60), sem executar ações:
+  média **93,856 ms**, p95 **201,641 ms**. Os tempos instrumentados não são usados como latência de produção.
+  Auditoria final cobre conjuntos, diálogos e ablações: 5.384 chamadas completas, 271 funções;
+  **0 regras de intenção, 0 regex de intenção, 0 pesos por palavra, 0 legado com efeito**.
+- Verificação focada: `(Get-Process -Id $PID).PriorityClass = 'BelowNormal'; $env:PYTHONIOENCODING = 'utf-8'; C:/ctv/n/Scripts/python.exe -m pytest -q tests/test_verificar.py > data/cache/verificador_focados.log`
+  → **47 testes passaram**. O verificador foi revisado por subagente; foram corrigidos filtros que podiam
+  reduzir a suíte, modo do índice e aprovação de diário incompleto. O snapshot não cobre recursos externos;
+  essa limitação está explícita. A aprovação final deste commit exige a execução completa do próprio verificador.
+- Direção posterior do usuário: trabalho direto, sem subagentes e sem pesquisa longa. Um protótipo de
+  recuperação de comandos por contagem foi retirado antes de ser ligado à web: ele não atende à composição
+  exigida. A geração produziu 38.981 registros TRAIN (8.207 canônicos/variantes antes da divisão, 12.464 DocEdit
+  train e 23.028 MASSIVE train no corpus total); o teste sintético de 371 itens não foi medido e não será usado
+  como prova de linguagem natural. Preservar apenas a possibilidade de usar esses dados como treino adicional
+  do A1, mantendo supervisão parcial do DocEdit e sem inventar ouro de alvo/propriedade.
+- Falhas restantes: A1 reprovada (127/189 no Top-10; seriam necessários 180/189). Generalização lexical,
+  composição e contexto insuficientes; web ainda no motor antigo. DocEdit/MASSIVE do motor novo não medidos.
+- Próximo passo: comparar motores em desenvolvimento externo, incorporar dados não escritos à mão e estabelecer
+  calibração e novo teste congelado; integrar o novo motor à web quando superar o antigo externamente.
 
 ### 2026-10-01 17:04: auditoria do portão e latência sem instrumentação
 - Commit: `1a150a4` (push: ok)

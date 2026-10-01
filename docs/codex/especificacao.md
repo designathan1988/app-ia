@@ -1,5 +1,21 @@
 # Especificação do usuário (governa o trabalho)
 
+## Instrução definitiva posterior (2026-10-01, 18:05)
+
+A missão e o modo de trabalho vigentes estão em `AGENTS.md` §0: entregar a web 8790 com compreensão PT/EN de
+pedidos novos, execução calibrada com no máximo 0,5% de erros, pergunta com 2 ou 3 opções e aprendizado com
+escolhas. A comprovação exige teste novo congelado antes de medir e medidas externas DocEdit dev/MASSIVE dev
+PT/EN. O implementador escolhe abordagem e arquitetura e continua após portões reprovados; não espera revisor
+ou permissão. Dados externos de treino e dados canônicos derivados do builder estão autorizados, separados dos
+congelados. O DEV antigo não guia novos ajustes e o TEST A1 consumido não é repetido.
+
+Esta direção substitui ordens anteriores de ritmo, sequência ou parada; mantém as proibições de LLM/neural,
+conhecimento linguístico manual, remendos por frase e vazamento. Antes de cada commit são obrigatórios suíte
+completa, auditoria, verificações de consumidores/congelados/determinismo/condições, diário no mesmo commit,
+`scripts/verificar.py` e revisão do diff. A instrução posterior determina execução direta, sem subagentes,
+pesquisa somente necessária e dados adicionais para o motor A1, sem classificador bag-of-words substituto. Triagem é barata; avaliações completas e ablações são separadas.
+O restante abaixo preserva o registro histórico das especificações anteriores.
+
 Este arquivo transcreve **na íntegra** as duas especificações que o usuário escreveu em 2026-10-01 na conversa
 "Compreensão completa de linguagem". O texto entre as linhas é dele e não deve ser alterado. Em caso de conflito com
 qualquer outro documento do repositório, **este arquivo vence**.
