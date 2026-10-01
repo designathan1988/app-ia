@@ -145,8 +145,7 @@ def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str = "pt"
             key = (m.kind, m.target)
             if key not in found or m.cost < found[key].cost:
                 found[key] = m
-    if found:
-        return tuple(sorted(found.values(), key=lambda m: m.cost))
+    from_graph = bool(found)
 
     def add(ms, how, via, base):
         for m in ms:
@@ -161,7 +160,9 @@ def meanings(word: str, pos: str | None = None, depth: int = 2, lang: str = "pt"
         add(direct(s), "sinonimo", s, 0.0)
     for en in dictionary.translations(word):
         add(_from_translation(en), "traducao", en, 0.0)
-    if depth > 0:  # also when a translation was found: it may be another sense of the word ("paint")
+    # the dictionary's synonyms and translations always count (a synonym may be a known action the wordnet does
+    # not link: "travar" ~ "trancar"); its definitions only when the graph found nothing (they are noisier)
+    if depth > 0 and not from_graph:
         for g in dictionary.gloss_words(word, pos):
             if g in GLOSS_STOP or fold(g) == fold(word) or not _content_word(g):
                 continue

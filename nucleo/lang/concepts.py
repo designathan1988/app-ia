@@ -213,10 +213,18 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
         for c, k in concepts_of(color, "en")[:1]:  # a color word's first sense is the color
             for p in color_properties():
                 out.setdefault(c, []).append((("valor", (p, color)), k))
+    from ..builder.scenarios import load_commands as _lc
+
+    _cmds = _lc()
     for verbs in command_verbs.table().values():
         for cv in verbs:
             if cv.english and not cv.rest:
                 for c, k in concepts_of(cv.english, "en", "v")[:3]:
+                    out.setdefault(c, []).append((("comando", cv.command), k))
+            elif cv.rest:
+                # a multiword label ("Move up") is one verb in the wordnet ("move up" = rise, ascend)
+                label = en.get(_cmds.get(cv.command, {}).get("labelKey") or "", "").lower()
+                for c, k in concepts_of(label, "en", "v")[:2]:
                     out.setdefault(c, []).append((("comando", cv.command), k))
     # actions: anchored by the English label of the builder command that performs them, first sense only
     # (a Portuguese verb like "apagar" also means "to conceal": anchoring through it would mix the actions)
@@ -229,6 +237,9 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
         verb = (re.findall(r"[A-Za-z]+", label) or [""])[0].lower()
         for c, k in concepts_of(verb, "en", "v")[:1]:
             out.setdefault(c, []).append((("acao", frame), 0.2))
+        # and by the frame's own name, a Portuguese verb, in its first sense ("remover" = remove, take away)
+        for c, k in concepts_of(frame, "pt", "v")[:1]:
+            out.setdefault(c, []).append((("acao", frame), 0.3))
     return out
 
 

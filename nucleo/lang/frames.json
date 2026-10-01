@@ -12,6 +12,8 @@
                 "aumentar", "diminuir", "reduzir", "ampliar"]},
     {"id": "texto", "resultado": "field:text", "objeto": "campo:texto", "valor": true, "valor_casos": ["para", "como", "por"],
      "verbos": ["escrever", "mudar", "alterar", "trocar", "definir", "colocar", "pôr", "deixar"]},
+    {"id": "escrever", "resultado": "field:text", "objeto": "literal", "valor": true,
+     "verbos": ["escrever", "digitar", "redigir"]},
     {"id": "nome", "resultado": "field:name", "objeto": "campo:nome", "valor": true, "valor_casos": ["para", "como", "por"],
      "verbos": ["mudar", "alterar", "trocar", "definir", "colocar", "pôr"]},
     {"id": "renomear", "resultado": "field:name", "objeto": "no", "valor": true, "valor_casos": ["para", "como", "por"],

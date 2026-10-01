@@ -31,9 +31,10 @@ def test_a_taught_verb_means_its_definition(world):
 
 
 def test_a_taught_phrase_names_the_same_entity(world):
-    assert understand("mude a cor de fundo da seção Hero para #fff", world).decision != "executar"
-    assert understand("cor de fundo significa fundo", world).decision == "aprendido"
-    u = understand("mude a cor de fundo da seção Hero para #fff", world)
+    # an invented word: nothing (catalog, wordnet, dictionary) gives it a meaning until it is taught
+    assert understand("mude o zorbo da seção Hero para #fff", world).decision != "executar"
+    assert understand("zorbo significa fundo", world).decision == "aprendido"
+    u = understand("mude o zorbo da seção Hero para #fff", world)
     assert u.decision == "executar" and u.best.constraints[0]["property"] == "background-color"
 
 
@@ -44,9 +45,9 @@ def test_what_is_not_understood_is_not_learned(world, definition):
 
 
 def test_forgetting(world):
-    understand("cor de fundo significa fundo", world)
-    assert learned.forget("cor de fundo")
-    assert understand("mude a cor de fundo da seção Hero para #fff", world).decision != "executar"
+    understand("zorbo significa fundo", world)
+    assert learned.forget("zorbo")
+    assert understand("mude o zorbo da seção Hero para #fff", world).decision != "executar"
 
 
 def test_a_taught_structure_is_built_whole(tmp_path, monkeypatch):
