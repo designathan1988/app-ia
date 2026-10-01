@@ -89,6 +89,35 @@ def _keywords(prop: str) -> set[str]:
 
 
 @lru_cache(maxsize=1)
+def _all_literal_kinds() -> dict[str, frozenset]:
+    """property -> the kinds of literal its W3C value grammar takes ("length", "number", "color"), following the
+    named types and properties it refers to (line-height: normal | <number> | <length-percentage>)."""
+    types = {t["name"]: t.get("syntax") or t.get("value") or "" for t in _css().get("types", [])}
+    props: dict[str, str] = {}
+    for p in _css().get("properties", []):
+        props[p["name"]] = (props.get(p["name"], "") + " | " + (p.get("syntax") or p.get("value") or "")).strip(" |")
+    marks = {"length": ("<length", "<percentage", "<length-percentage"), "number": ("<number", "<integer"),
+             "color": ("<color",)}
+
+    def expand(syntax: str, depth: int, seen: set) -> set:
+        kinds = {k for k, ms in marks.items() if any(m in syntax for m in ms)}
+        if depth < 5:
+            for ref in re.findall(r"<([a-z-]+)(?:\s[^>]*)?>", syntax):
+                if ref in types and ref not in seen:
+                    kinds |= expand(types[ref], depth + 1, seen | {ref})
+            for ref in re.findall(r"<'([a-z-]+)'>", syntax):
+                if ref not in seen:
+                    kinds |= expand(props.get(ref, ""), depth + 1, seen | {ref})
+        return kinds
+
+    return {name: frozenset(expand(syntax, 0, {name})) for name, syntax in props.items()}
+
+
+def literal_kinds(prop: str) -> frozenset:
+    return _all_literal_kinds().get(prop, frozenset())
+
+
+@lru_cache(maxsize=1)
 def named_colors() -> set[str]:
     t = next((t for t in _css().get("types", []) if t["name"] == "named-color"), None)
     return _syntax_keywords(t.get("syntax") or t.get("value") or "") if t else set()

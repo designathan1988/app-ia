@@ -143,7 +143,8 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
     topic = [(None, gr.Den("prop", ctx.topic_prop + (None,), CONTEXT_COST, frozenset(), ("pelo contexto",)))] \
         if ctx is not None and ctx.topic_prop and not any(a.of("prop") for a in args) else []
     props = topic + [(a, d) for a in args for d in a.of("prop")] + \
-        [(a, d) for a in args for d in a.of("field") if d.data[1] == "text" and d.data[2] is not None] + [(None, None)]
+        [(a, d) for a in args for d in a.of("field") if d.data[1] == "text" and d.data[2] is not None] + \
+        _surface_labels(args, tokens, world) + [(None, None)]
     themes = _themes(p, args, ctx)
     places = [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
     out = []
@@ -167,7 +168,9 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
             said = pd.data[:2] if pd is not None and pd.kind == "prop" else None
             v_lit = None
             if v.kind == "measure":
-                said, v_lit = v.data[:2], v.data[2]
+                # (the property said by its full label wins over the measure's own head word: "altura mínima de
+                # 200px" is min-height; the measure gives the literal)
+                said, v_lit = (said if said is not None else v.data[:2]), v.data[2]
             if v.kind == "val":
                 for prop, value in v.data:
                     if said is not None:
@@ -207,7 +210,8 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
             best = min(c for _, _, c in options)
             chosen = [o for o in options if o[2] == best]
             prop, value, prior = chosen[0]
-            bp, st, layer_words = _layer(p, tokens, world)
+            used = set(v.words) | (set(pd.words) if pd is not None else set())  # (a label word is not a layer)
+            bp, st, layer_words = _layer(p, [x for x in tokens if x.i not in used], world)
             ask = None
             if v.kind == "cmp":
                 value, ask = _scaled(world, nodes[0], prop, v.data)
@@ -295,12 +299,69 @@ def _scaled(world, node, prop, direction):
     return f"{int(new) if unit in ('px', '%') else new}{unit}", None
 
 
+def _mentions(args) -> list:
+    """Every mention of the clause's arguments, with the phrases attached to them."""
+    out, stack = [], [a.mention for a in args if a.mention is not None]
+    while stack:
+        m = stack.pop(0)
+        out.append(m)
+        stack += [x for _, x in m.attached] + list(m.conj)
+    return out
+
+
+def _surface_labels(args, tokens, world) -> list:
+    """Property labels said as contiguous words of the clause, whatever tree the parser built over them: a label is
+    one lexical unit (a multiword expression), "quebra antes" is break-before even when "antes" was attached to
+    the verb. The owner is the element named right after the label ("... do contêiner Actions")."""
+    arts = langs.profile()["articles"]
+    own = sorted((t for t in tokens if t.upos != "PUNCT" and fold(t.form.lower()) not in arts), key=lambda t: t.i)
+    seq = tuple(lexicon.lemma_of(t.form) for t in own)
+    found = []
+    for k in range(len(seq)):
+        for e, n in lexicon.match(seq, {"propriedade"}, k):
+            if n < 2 or e.lemmas == (e.id,):
+                continue  # one word, or a CSS name: the tree's own grounding covers it
+            span = own[k:k + n]
+            ws = frozenset(t.i for t in span)
+            if sum(1 for t in span if t.head not in ws) < 2:
+                continue  # one word of the span dominates the rest: the tree kept the label as a phrase
+            after = [m for m in _mentions(args) if m.head.i > span[-1].i and not ({t.i for t in m.words} & ws)]
+            after.sort(key=lambda m: m.head.i)
+            owner = next((r for m in after for r in gr.references(m, world)[:1]), None)
+            if owner is None:
+                continue
+            words = ws | owner.words | {t.i for m in after[:1] for t in m.words if t.upos == "ADP"}
+            found.append((Arg("rotulo", "", None, []), gr.Den("prop", ("propriedade", e.id, owner), owner.cost,
+                                                                frozenset(words))))
+            break
+    return found
+
+
+def _label_spans(tokens) -> list:
+    """(property, token indices) of every multiword property label said as contiguous words."""
+    arts = langs.profile()["articles"]
+    own = sorted((t for t in tokens if t.upos != "PUNCT" and fold(t.form.lower()) not in arts), key=lambda t: t.i)
+    seq = tuple(lexicon.lemma_of(t.form) for t in own)
+    out = []
+    for k in range(len(seq)):
+        for e, n in lexicon.match(seq, {"propriedade"}, k):
+            if n >= 2 and e.lemmas != (e.id,):
+                out.append((e.id, frozenset(t.i for t in own[k:k + n])))
+                break
+    return out
+
+
+LABEL_SPLIT = 2.0  # using the words of a multiword label apart (a lexical unit read as separate words)
+
+
 def _layer(p: lf.Predicate, tokens, world) -> tuple:
     """The breakpoint and style state a change is for: catalog labels said anywhere in the clause ("ao passar o
     mouse", "no tablet", "no estado depois", "on hover"); (breakpoint, state, tokens explained)."""
     bp, st = world.layer
     ws = set()
-    own = sorted((t for t in tokens if t.upos != "PUNCT"), key=lambda t: t.i)
+    arts = langs.profile()["articles"]
+    # (articles are not part of labels: "ao passar o mouse" is the label "Ao passar o mouse" without them)
+    own = sorted((t for t in tokens if t.upos != "PUNCT" and fold(t.form.lower()) not in arts), key=lambda t: t.i)
     seq = tuple(lexicon.lemma_of(t.form) for t in own)
     k = 0
     while k < len(seq):
@@ -344,6 +405,15 @@ def _label_has(prop: str, word: str) -> bool:
                if e.kind == "propriedade")
 
 
+def _fits(prop: str, lit) -> bool:
+    """A literal fits a property when the builder's declared type takes it or the W3C grammar does
+    (line-height is declared a number, and its grammar also takes lengths)."""
+    from .values import literal_kinds
+
+    u = _u()
+    return u._value_fits(prop, lit) or u._value_kind(lit) in literal_kinds(prop)
+
+
 def _literal_options(said, lit, ntype) -> list:
     """The properties a literal can be the value of, given the property said: the property itself if the value fits
     it; for a family ("cor", "length"), its properties; and the properties whose label contains the one said and
@@ -355,14 +425,15 @@ def _literal_options(said, lit, ntype) -> list:
     kind, pid = said
     out = []
     if kind == "lista":
-        return [(q, lit, u._prior(q, ntype)) for q in pid if u._value_fits(q, lit) and
-                u._value_kind(lit) in u.ACCEPTS.get(builder.get(q, {}).get("valueType"), {u._value_kind(lit)})]
+        return [(q, lit, u._prior(q, ntype)) for q in pid if _fits(q, lit)]
     if kind == "familia":
         out += [(q, lit, u._prior(q, ntype)) for q, info in builder.items()
-                if info.get("valueType") == pid and u._value_fits(q, lit)]
+                if info.get("valueType") == pid and _fits(q, lit)]
         return out
     vtype = builder.get(pid, {}).get("valueType")
-    takes = u._value_kind(lit) in u.ACCEPTS.get(vtype, ()) if vtype in u.ACCEPTS else u._value_fits(pid, lit)
+    from .values import literal_kinds
+
+    takes = (u._value_kind(lit) in u.ACCEPTS.get(vtype, ()) if vtype in u.ACCEPTS else u._value_fits(pid, lit)) or         u._value_kind(lit) in literal_kinds(pid)
     if takes:
         out.append((pid, lit, u._prior(pid, ntype)))
     entry = next((e for e in lexicon.load() if e.kind == "propriedade" and e.id == pid and e.lemmas != (pid,)), None)
@@ -508,9 +579,15 @@ def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
     """The text and name a new element is given in its own phrase: a field word with a literal ("com o texto
     'X'", "with the text 'X'") or a naming participle with a literal ("chamado X", "named X")."""
     extras, words = {}, set()
-    for case, a in m.attached:
+    phrases, stack = [], list(m.attached)
+    while stack:  # every phrase attached, at any depth ("com o nome X com o texto Y"), each with its own literal
+        case, a = stack.pop(0)
+        phrases.append((case, a))
+        stack += a.attached
+    for case, a in phrases:
         lits = [d for d in gr.values(a) if d.kind == "lit"] + \
-            [d for _, b in a.attached for d in gr.values(b) if d.kind == "lit"]
+            [d for _, b in a.attached for d in gr.values(b) if d.kind == "lit" and not b.attached and
+             not any(d2.kind == "field" for d2 in gr.properties(b, world))]
         if not lits:
             continue
         lit = min(lits, key=lambda d: d.cost)
@@ -523,7 +600,8 @@ def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
             fid = "name" if ev.kinds.get("field:name", 9.0) < 1.0 else None
         if fid and fid not in extras:
             extras[fid] = lit.data
-            words |= {t.i for t in a.words}
+            nested = {x.i for _, b in a.attached for x in b.words}
+            words |= {t.i for t in a.words if t.i not in nested} | set(lit.words)
     return extras, words
 
 
@@ -673,6 +751,13 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
                 c.cost += 0.5
                 c.explained |= {p.head.i}
                 cands.append(c)
+    spans = _label_spans(tokens)
+    for c in cands:
+        for pid, ws in spans:
+            if c.explained & ws and not any(k.get("property") == pid for k in c.constraints):
+                c.cost += LABEL_SPLIT
+                c.notes.append("rótulo partido")
+                c.parts["rotulo_partido"] = LABEL_SPLIT
     for c in cands:
         c.explained |= set(ev.particles)  # the particle is part of the verb ("jogar fora", "get rid of")
         extra, left = _unexplained(p, c, tokens)

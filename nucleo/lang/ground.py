@@ -277,8 +277,14 @@ def properties(m: Mention, world) -> list[Den]:
     res = []
     for d in out:
         owner = None
-        for case, a in m.attached:
+        stack = list(m.attached)
+        while stack:
+            case, a = stack.pop(0)
             if {t.i for t in a.words} <= d.words:
+                continue
+            if a.head.i in d.words:
+                # the phrase is part of the label ("altura da linha do parágrafo"): the owner is attached to it
+                stack = list(a.attached) + stack
                 continue
             refs = references(a, world)
             if refs:
