@@ -21,6 +21,9 @@ PROFILES = {
     "pt": {
         "catalog": "pt-BR.json",
         "of": "de",
+        "universal": {"todo", "toda", "todos", "todas", "cada"},
+        "ordinals": {"primeiro": 0, "primeira": 0, "segundo": 1, "segunda": 1, "terceiro": 2, "terceira": 2,
+                     "quarto": 3, "quarta": 3, "ultimo": -1, "ultima": -1, "penultimo": -2, "penultima": -2},
         "say": {"as": "como", "in": "em", "to": "para", "at": ", na posição", "with_text": "com o texto",
                 "with_name": "com o nome", "already": "(já está assim)", "element": "o elemento", "text": "texto",
                 "name": "nome", "attributes": "atributos"},
@@ -36,6 +39,8 @@ PROFILES = {
     "en": {
         "catalog": "en.json",
         "of": "of",
+        "universal": {"all", "every", "each"},
+        "ordinals": {"first": 0, "second": 1, "third": 2, "fourth": 3, "last": -1, "penultimate": -2},
         "say": {"as": "to", "in": "in", "to": "to", "at": ", at position", "with_text": "with the text",
                 "with_name": "named", "already": "(already so)", "element": "the element", "text": "text",
                 "name": "name", "attributes": "attributes"},

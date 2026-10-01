@@ -378,7 +378,9 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
             current = Piece((), [])
             continue
         if t.upos == "DET" and t.i not in used and not current.words:
-            current.det = t.form.lower()
+            # "todos os títulos": the quantifier is kept, the article after it adds nothing
+            if not (current.det and fold(current.det) in langs.profile()["universal"]):
+                current.det = t.form.lower()
             continue
         if t.i in used or t.upos in ("PUNCT", "DET") or t.lemma in ("favor",) or t.particle:
             continue
@@ -496,8 +498,19 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
             return list(world.selection), COST["referente_pela_selecao"], ["o que está selecionado"], 1
     if typ:
         of_type = [n for n, v in world.nodes.items() if v["type"] == typ]
+        # an ordinal picks one by document order ("o último parágrafo", "the first heading")
+        ordinals = langs.profile()["ordinals"]
+        said = [ordinals[fold(t.form.lower())] for t in piece.words if fold(t.form.lower()) in ordinals]
+        if said and of_type:
+            k = said[0]
+            if -len(of_type) <= k < len(of_type):
+                return [of_type[k]], COST["referente_por_tipo"], [], explained + 1
         if len(of_type) == 1:
             return of_type, COST["referente_por_tipo"] + type_cost, [], explained
+        universal = langs.profile()["universal"]
+        if len(of_type) > 1 and (any(fold(t.form.lower()) in universal for t in piece.words) or
+                                 piece.det and fold(piece.det) in universal):
+            return of_type, COST["referente_por_tipo"], [], explained  # "todos os títulos": all of them, asked for
         sel = [n for n in of_type if n in world.selection]
         if len(sel) == 1:
             return sel, COST["referente_por_tipo"], ["o selecionado entre vários"], explained
@@ -1625,6 +1638,17 @@ def split_clauses(text: str) -> list[str]:
     return [" ".join(p).replace(" ,", ",").strip(" ,;") for p in parts]
 
 
+def _replace_node(constraints: list, old: str, new: str) -> list:
+    def rep(x):
+        if isinstance(x, dict):
+            return {k: rep(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [rep(v) for v in x]
+        return new if x == old else x
+
+    return rep(constraints)
+
+
 def _regular_infinitives(form: str) -> list[str]:
     """Infinitives a verb form unknown to MorphoBr can have by the regular conjugation ("blorfe" -> "blorfar"):
     a word the user invented and taught is used in any of its forms."""
@@ -1727,6 +1751,13 @@ def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
         infinitive = (_regular_infinitives(verb) or [verb])[0]
         return Understanding(text, tokens, readings, "perguntar",
                              langs.msg("ask_unknown_verb", verb=infinitive))
+    universal = langs.profile()["universal"]
+    if best.ambiguous and any(fold(t.form.lower()) in universal for t in tokens):
+        # "todos os títulos", "all the headings": the same change for each one
+        each = [c for n in best.ambiguous for c in _replace_node(best.constraints, best.ambiguous[0], n)]
+        best.constraints, best.ambiguous = each, []
+        best.paraphrase = paraphrase(each, world)
+        return Understanding(text, tokens, readings, "executar", best.paraphrase)
     if best.ambiguous:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in best.ambiguous[:6])
         return Understanding(text, tokens, readings, "perguntar", langs.msg("which", names=names))

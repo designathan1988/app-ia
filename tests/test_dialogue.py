@@ -107,3 +107,13 @@ def test_questions_about_the_page(builder):
     a.handle("deixe o título em negrito")
     assert "bold" in a.handle("qual o peso da fonte do título?").text
     assert a.handle("por que?").text.startswith("Fiz")
+
+
+def test_quantifiers_and_ordinals(session):
+    assert session.ask('insira um parágrafo com o texto "Outro" no fim da seção Topo').ok
+    a = session.ask("deixe todos os parágrafos em negrito")
+    assert a.decision == "executado" and a.message.count("bold") == 2, a.message
+    b = session.ask("hide every paragraph")
+    assert b.decision == "executado" and b.commands.count("element.toggleHidden") == 2, b.message
+    c = session.ask("apague o último parágrafo")
+    assert c.decision == "executado", c.message
