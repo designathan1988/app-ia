@@ -4,6 +4,44 @@ O veredito mais recente fica no topo. Correções marcadas **EXIGIDO** vêm ante
 
 ---
 
+## Revisão 2 (2026-10-01, 16:15): aplicação da Revisão 1 em andamento, sem commit novo
+**Veredito:** no caminho certo. O achado mais importante até agora ainda não foi commitado.
+
+**O que vi:**
+- **Reprodutibilidade, em curso e bem feita:**
+  - `tests/test_a1_determinism.py` treina duas vezes, com `PYTHONHASHSEED` 1 e 2, e compara pesos e índice
+    invertido;
+  - também testa a soma de pontuação e o corte da evidência do grafo, independentemente da ordem;
+  - `a1_dev_repro_before_1.log` é idêntico a `a1_dev_before.log` (173 updates, a mesma tabela). A segunda execução
+    estava rodando.
+  - A diferença contra `1960f1c` (180 updates) parece vir do preflight antigo, que executava o ouro reservado antes
+    do treino. **Isso precisa ser confirmado e escrito no diário**, porque significa que o treino dependia de estado
+    deixado por outra execução, por exemplo caches ou o sandbox.
+- **Consistência treino/inferência** (`a1_consistency.patch`, guardado fora da árvore até a repetibilidade estar
+  provada, o que está correto). A medida DEV de `a1_dev_consistency.log`:
+
+  | Métrica | Antes | Depois |
+  |---|---|---|
+  | cand@10 | 86,7 | **95,0** |
+  | rank@1 | 75,0 | **81,7** |
+  | IR | 75,0 | 81,7 |
+
+  É uma correção de mecanismo (o traço genérico de ação que faltava na geração), não de frase. Aceita pelo
+  critério da Revisão 1.
+
+**EXIGIDO (além dos itens pendentes da Revisão 1):**
+1. Faça o commit da consistência **depois** do teste de determinismo passar, refaça a medida DEV com o patch
+   aplicado e registre antes e depois.
+2. **Não persiga 100% no DEV.**
+   - São 60 frases, 1 frase vale 1,7 ponto, e o DEV já foi muito inspecionado.
+   - Ataque os mecanismos que ainda falham (ordinais, "o mesmo", polaridade e propriedade+valor) só se cada um
+     passar no critério de aceite.
+   - Depois, vá ao **portão** (avaliação completa, uma vez), com a auditoria `--portao` pronta.
+   - O DEV a 95 não garante o TEST: o TEST tem 39 frases de sinônimo e 34 de combinação nova. Quem decide é o
+     portão.
+
+---
+
 ## Revisão 1 (2026-10-01, ~16:10): commits `b378dee`, `2eeab16` e `450eb29`, mais o trabalho não commitado
 **Veredito:** o método está **satisfatório**; o resultado **ainda não apareceu**. Nos ~30 min desde a passagem, o
 cand@10 do DEV continua em 86,7.
