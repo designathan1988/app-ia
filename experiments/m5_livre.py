@@ -64,7 +64,7 @@ CASES = [
     ("bloqueie o título", C("element.toggleLock", "t")),
     ("trave o botão", C("element.toggleLock", "b")),
     ("mova o parágrafo para cima", C("element.moveUp", "p")),
-    ("desce o título", "perguntar"),
+    ("desce o título", C("element.moveDown", "t")),
     # removal
     ("apague o botão", {"kind": "removed", "id": "b"}),
     ("remova a imagem", {"kind": "removed", "id": "i"}),
@@ -230,6 +230,41 @@ FRESH = [
 ]
 
 
+# fourth round, written after the third round's fixes and run once before any change
+FOURTH = [
+    ("bota o título em itálico e sublinhado", "perguntar"),
+    ("quero que o parágrafo fique centralizado", S("text-align", "center", "p")),
+    ("o botão precisa ficar vermelho", S("color", "red", "b")),
+    ("seria possível deixar a seção com fundo preto?", S("background-color", "black", "s")),
+    ("aumenta o espaçamento entre as letras do título para 2px", S("letter-spacing", "2px", "t")),
+    ("deixa a imagem com 400px de largura", S("width", "400px", "i")),
+    ("tira o botão da seção", {"kind": "removed", "id": "b"}),
+    ("exclui a foto", {"kind": "removed", "id": "i"}),
+    ("esconde a foto", C("element.toggleHidden", "i")),
+    ("duplica a seção", C("element.duplicate", "s")),
+    ("põe um parágrafo novo antes do botão", {"kind": "added", "type": "paragraph", "parent": "s"}),
+    ("insere uma imagem logo depois do título", {"kind": "added", "type": "image", "parent": "s"}),
+    ('escreve "Bem-vindo" no título', {"kind": "field", "field": "text", "value": "Bem-vindo"}),
+    ("passa o título para depois do parágrafo", {"kind": "moved", "id": "t"}),
+    ("sobe o parágrafo", C("element.moveUp", "p")),
+    ("desce o botão", C("element.moveDown", "b")),
+    ("deixa o texto do botão branco", S("color", "white", "b")),
+    ("muda a cor de fundo da seção pra #222222", S("background-color", "#222222", "s")),
+    ("make the paragraph bold and red", "perguntar"),
+    ("i want the title centered", S("text-align", "center", "t")),
+    ("the button should be blue", S("color", "blue", "b")),
+    ("set the letter spacing of the title to 2px", S("letter-spacing", "2px", "t")),
+    ("make the image 400px wide", S("width", "400px", "i")),
+    ("remove the button from the section", {"kind": "removed", "id": "b"}),
+    ("duplicate the section", C("element.duplicate", "s")),
+    ("add a new paragraph before the button", {"kind": "added", "type": "paragraph", "parent": "s"}),
+    ('write "Welcome" in the title', {"kind": "field", "field": "text", "value": "Welcome"}),
+    ("move the title below the paragraph", {"kind": "moved", "id": "t"}),
+    ("move the button down", C("element.moveDown", "b")),
+    ("make the button text white", S("color", "white", "b")),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -272,3 +307,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run(True, FRESH)
     print("terceira rodada:", c, f"de {len(FRESH)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run(True, FOURTH)
+    print("quarta rodada:", c, f"de {len(FOURTH)} em {time.time() - t:.1f}s")

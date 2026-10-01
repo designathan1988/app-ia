@@ -223,11 +223,21 @@ def _verb_value_pairs(lemma: str) -> list:
 
 
 def _predicative(tokens: list[Token], t: Token) -> bool:
-    """A participle right after a noun describes it ("o título sublinhado"): it is a state, not the request's verb."""
+    """A participle right after a noun or a copula describes a state ("o título sublinhado", "fique centralizado",
+    "the title centered"): it is the state asked for, not the request's verb."""
     from .morph import analyses
 
     k = tokens.index(t)
-    return k > 0 and tokens[k - 1].upos in ("NOUN", "PROPN") and         any(tags.startswith("V+PTPST") for _, tags in analyses(t.form.lower()))
+    if k == 0:
+        return False
+    before = tokens[k - 1]
+    # after a noun ("o título sublinhado") or a copula ("fique centralizado", "be centered")
+    after_copula = before.lemma in COPULAS or any(c in COPULAS for c in morph_lemmas(before.form, "V"))
+    if not (before.upos in ("NOUN", "PROPN") or after_copula):
+        return False
+    if langs.current() == "en":
+        return t.form.lower().endswith(("ed", "en"))
+    return any(tags.startswith("V+PTPST") for _, tags in analyses(t.form.lower()))
 
 
 def _predicate(tokens: list[Token]) -> Token | None:
@@ -396,7 +406,10 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
             continue
         if t.i in used or t.upos in ("PUNCT", "DET") or t.lemma in ("favor",) or t.particle:
             continue
-        if t.upos == "ADP" or t.upos in ("SCONJ", "PART") and fold(t.form.lower()) in _case_words():
+        if t.upos == "ADP" or t.upos in ("SCONJ", "PART") and fold(t.form.lower()) in _case_words() or \
+                t.upos == "ADV" and fold(t.form.lower()) in _case_words() and nxt is not None and \
+                nxt.upos in ("DET", "NOUN", "PROPN", "ADJ", "NUM"):
+            # (and a place word the tagger read as an adverb, "below the paragraph", when a phrase follows it)
             # "para" before a word the tagger read as a verb ("para Comprar") still marks the value phrase
             if current.words and all(fold(w.lemma) in _locution_heads() for w in current.words):
                 # "depois de", "para o início de": head + preposition form one complex preposition
@@ -810,6 +823,10 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     for r in _comparative_readings(tokens, pred, pieces, world):
         r.verb = pred.lemma
         out.append(r)
+    if any(f["id"] in ("estilo", "estilo_por_valor") for f in frames) or base_cost:
+        for r in _measure_readings(tokens, pieces, world):
+            r.verb = pred.lemma
+            out.append(r)
     if any(f["id"] in ("estilo", "existir") for f in frames) or base_cost:
         for r in _sided_readings(pieces, world):
             r.verb = pred.lemma
@@ -968,6 +985,8 @@ def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
     for k, p in enumerate(pieces):
         if p.case or not p.words:
             continue
+        if _reference(p, world)[0] or lexicon.match(p.lemmas, {"tipo"}):
+            continue  # "tira o botão": a word that names an element is the element, not a value ("appearance: button")
         pairs = [pv for lem in _common_lemmas(p) for pv in value_index().get(lem, [])]
         if not pairs:
             continue
@@ -986,6 +1005,54 @@ def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
             cost = c + _prior(prop, world.nodes[node]["type"]) + _unexplained(pieces, {k, j}, {k: len(p.lemmas),
                                                                                                 j: ex})
             out.append(Reading("remover", cons, cost, list(notes), paraphrase(cons, world)))
+            break
+    return out
+
+
+def _measure_readings(tokens: list[Token], pieces: list[Piece], world: World) -> list[Reading]:
+    """A measure and its dimension, said of an element: "a imagem com 400px de largura", "make the image 400px
+    wide", "deixe o título com 40px de altura". The dimension is a property's label ("largura") or an adjective the
+    wordnet links to it ("wide" -> width, "tall" -> height, by the attribute relation)."""
+    from . import grounding
+
+    measures = [(i, t) for i, t in enumerate(tokens) if is_literal(t.form) and _value_kind(literal_value(t.form))
+                in ("length", "number")]
+    if not measures:
+        return []
+    out = []
+    for i, m in measures:
+        value = literal_value(m.form)
+        dims = []
+        for t in tokens[i + 1:i + 4]:  # the dimension word right after the measure ("400px de largura", "400px wide")
+            if t.upos not in ("NOUN", "ADJ", "ADV", "VERB"):
+                continue
+            hits = lexicon.match((lexicon.lemma_of(t.form),), {"propriedade"})
+            dims += [(h[0].id, 0.0, t) for h in hits if h[1] == 1]
+            dims += [(gm.target, gm.cost, t) for gm in grounding.meanings(t.form, "A")
+                     if gm.kind == "propriedade" and gm.cost <= 1.2]
+            if dims:
+                break
+        dims = [d for d in dims if _value_fits(d[0], value) and _value_kind(value) in
+                ACCEPTS.get(values_mod._builder_properties().get(d[0], {}).get("valueType"), ())]
+        if not dims:
+            continue
+        prop, dcost, dword = min(dims, key=lambda d: d[1])
+        for k, p in enumerate(pieces):
+            if p.case and not (len(p.case) == 1 and p.case[0] in ARTICLE_FORMS):
+                continue
+            words = [t for t in p.words if t is not m and t is not dword]
+            if not words:
+                continue
+            ref, c, notes, ex = _reference(Piece((), words, p.det), world)
+            if len(ref) != 1:
+                continue
+            node = ref[0]
+            used = {j for j, q in enumerate(pieces) if any(t is m or t is dword for t in q.words)} | {k}
+            explained = {j: len(pieces[j].lemmas) for j in used}
+            cons = [{"kind": "style", "id": node, "breakpoint": world.layer[0], "state": world.layer[1],
+                     "property": prop, "value": value}]
+            cost = c + dcost + _prior(prop, world.nodes[node]["type"]) + _unexplained(pieces, used, explained)
+            out.append(Reading("estilo", cons, cost, list(notes), paraphrase(cons, world)))
             break
     return out
 
@@ -1094,8 +1161,10 @@ def _dictionary_readings(lemma: str, pieces: list[Piece], world: World, given=No
             import dataclasses
 
             verbs = [cv for vs in command_verbs.table().values() for cv in vs if cv.command == m.target]
-            # reached through its meaning ("subir" ~ "move up"), the label's rest is already said by the verb
-            verbs = [dataclasses.replace(cv, rest=()) for cv in verbs[:1]]
+            # reached through its meaning ("subir" ~ "move up"), the label's rest is already said by the verb; but
+            # the label's own verb ("move") says only half of it, and the rest ("up") must be said too
+            verbs = [cv if cv.rest and lemma.split()[0] == cv.verb else dataclasses.replace(cv, rest=())
+                     for cv in verbs[:1]]
             rs = _command_readings(lemma, pieces, world, in_frame=False, verbs=verbs)
         elif m.kind == "acao":
             rs = [r for f in FRAMES["quadros"] if f["id"] == m.target for r in _frame_readings(f, pieces, world)]
@@ -1244,18 +1313,20 @@ def _descends(node: str, ancestor: str, world: World) -> bool:
 def _within(ref: list, pieces: list[Piece], k: int, world: World) -> tuple[list, dict]:
     """Several candidates, and the next phrase names where the one meant is ("o título do CardA", "the heading in
     the Plans section"): only the candidates inside that element. Returns the candidates and the phrase it used."""
-    if len(ref) <= 1 or k + 1 >= len(pieces):
+    if not ref or k + 1 >= len(pieces):
         return ref, {}
     q = pieces[k + 1]
     kind, skip = _place(q.case, q) if q.case else (None, 0)
-    if q.case[:1] != _OF() and kind != "dentro":
+    source = q.case[:1] in (_OF(), (langs.profile().get("from", "de"),))  # "da seção", "from the section"
+    if not source and kind != "dentro":
         return ref, {}
     container, _, _, ex = _reference(q, world, skip if kind == "dentro" else 0)
     if len(container) != 1:
         return ref, {}
     inside = [n for n in ref if _descends(n, container[0], world)]
-    if not inside or len(inside) == len(ref):
+    if not inside:
         return ref, {}
+    # (with one candidate, the phrase only says where it is: "tira o botão da seção")
     return inside, {k + 1: (skip if kind == "dentro" else 0) + ex}
 
 

@@ -165,3 +165,28 @@ O analisador inglês (UD English-EWT, mesmo modelo linear) dá UPOS 93,7% e LAS 
 - "faz o parágrafo sumir";
 - "joga o botão pro começo da seção";
 - "deixa todas as imagens escondidas".
+
+## Quarta rodada (frases novas, rodadas uma vez antes de qualquer mudança)
+
+| | Certo | Perguntou ou não entendeu | Errado |
+|---|---|---|---|
+| antes (medida limpa) | 22 de 30 | 5 | **3** |
+| depois | 30 de 30 | 0 | 0 |
+
+**Os três erros da medida limpa:**
+- "tira o botão da seção" / "remove the button from the section" leram "botão" como o valor CSS `button`;
+- "move the title below the paragraph" virou "mover para cima".
+
+**Corrigidos por mecanismos gerais:**
+- uma palavra que nomeia um elemento existente nunca é um valor a retirar;
+- o próprio verbo de um rótulo de várias palavras exige o resto do rótulo;
+- um lugar etiquetado como advérbio ainda abre um sintagma;
+- "de" ou "from" de origem numa remoção;
+- particípio depois de cópula ("fique centralizado", "be centered");
+- comandos de várias palavras ancorados nos verbos que a WordNet define assim ("Move down" ↔ "descend: move
+  downward"), e a relação "ver também" encarecida (encadeada, ela invertia o sentido);
+- a construção de medida: valor + dimensão ("com 400px de largura", "400px wide"; o adjetivo chega à propriedade
+  pela relação de atributo da WordNet).
+
+**Resultado negativo registrado:** ligar cada conceito às palavras da sua definição foi medido e desligado. Trazia
+mais ruído do que significado.

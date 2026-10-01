@@ -243,3 +243,17 @@ def test_constructions(text, expected):
 def test_place_says_the_side(text, prop):
     u = understand(text, World.from_document(load_fixture("aurora"), []))
     assert u.decision == "executar" and u.best.constraints[0]["property"] == prop, u.message
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("tira o parágrafo Intro da seção Hero", {"kind": "removed", "id": "n-intro"}),
+    ("desce o parágrafo Intro", {"kind": "command", "command": "element.moveDown", "id": "n-intro"}),
+    ("quero que o parágrafo Intro fique centralizado", {"kind": "style", "property": "text-align", "value": "center"}),
+    ("make the Intro paragraph 400px wide", {"kind": "style", "property": "width", "value": "400px"}),
+    ("deixe o parágrafo Intro com 200px de altura", {"kind": "style", "property": "height", "value": "200px"}),
+])
+def test_fourth_round_mechanisms(text, expected):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", (text, u.message)
+    c = u.best.constraints[0]
+    assert {k: c.get(k) for k in expected} == expected, (text, c)

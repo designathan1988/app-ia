@@ -47,6 +47,7 @@ PROFILES = {
     "en": {
         "catalog": "en.json",
         "of": "of",
+        "from": "from",
         "universal": {"all", "every", "each"},
         "sides": {"antes": "top", "depois": "bottom"},
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},

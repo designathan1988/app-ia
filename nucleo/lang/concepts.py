@@ -36,7 +36,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "data" / "dicionario"
 DB = ROOT / "data" / "cache" / "conceitos.sqlite"
 # cost of following a relation between concepts (a synonym is the same concept: cost 0)
-REL_COST = {"similar": 0.6, "also": 0.8, "attribute": 0.6, "derivation": 0.5, "pertainym": 0.6,
+REL_COST = {"similar": 0.6, "also": 1.4, "attribute": 0.6, "derivation": 0.5, "pertainym": 0.6,
             "participle": 0.4, "hypernym": 1.2, "instance_hypernym": 1.5, "entails": 1.0, "causes": 1.0}
 # (definition edges, concept -> the words of its English definition, are stored but not followed: measured, they
 # added more noise than meaning — "sumir" reached "forma flexionada", "round" reached "along" — and did not lead
@@ -256,10 +256,13 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
                 for c, k in concepts_of(cv.english, "en", "v")[:3]:
                     out.setdefault(c, []).append((("comando", cv.command), k))
             elif cv.rest:
-                # a multiword label ("Move up") is one verb in the wordnet ("move up" = rise, ascend)
+                # a multiword label ("Move up") is one verb in the wordnet ("move up" = rise), or the verbs whose
+                # definition says it ("descend: move downward", "rise: move upward")
                 label = en.get(_cmds.get(cv.command, {}).get("labelKey") or "", "").lower()
                 for c, k in concepts_of(label, "en", "v")[:2]:
                     out.setdefault(c, []).append((("comando", cv.command), k))
+                for c in _defined_as(tuple(re.findall(r"[a-z]+", label))):
+                    out.setdefault(c, []).append((("comando", cv.command), 0.3))
     # actions: anchored by the English label of the builder command that performs them, first sense only
     # (a Portuguese verb like "apagar" also means "to conceal": anchoring through it would mix the actions)
     from .builder_commands import FRAME_COMMANDS
@@ -275,6 +278,23 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
         for c, k in concepts_of(frame, "pt", "v")[:1]:
             out.setdefault(c, []).append((("acao", frame), 0.3))
     return out
+
+
+@lru_cache(maxsize=256)
+def _defined_as(words: tuple) -> list[str]:
+    """Verb concepts whose English definition begins with these words, each word or a longer form of it ("move
+    down" -> "move downward ..."): the verbs the wordnet defines as that phrase."""
+    if not words:
+        return []
+    con = _con()
+    pattern = r"^\W*" + r"\W+".join(re.escape(w) + r"\w*" for w in words) + r"\b"
+    out = []
+    for concept, text in con.execute("SELECT g.concept, g.text FROM gloss g JOIN lex l ON l.concept = g.concept "
+                                     "WHERE g.lang = 'en' AND l.lang = 'en' AND l.pos = 'v' AND g.text LIKE ?",
+                                     (words[0] + " %",)):
+        if re.match(pattern, text.lower()) and concept not in out:
+            out.append(concept)
+    return out[:6]
 
 
 def meanings(word: str, lang: str = "pt", pos: str | None = None, limit: float = MAX_COST) -> list[tuple]:
