@@ -133,8 +133,19 @@ class Assistant:
                          links=[(h.title, h.url, h.source) for h in hits[:12]])
         if " entidade " in f" {text.lower()} ":
             return self._project(text)
-        looks_like_question = text.endswith("?") or first in ("onde", "quem", "quais", "qual", "que", "o")
-        if self.code_root and looks_like_question:
+        # a question about the page is answered from the document (it grounds in the page's elements); one that does
+        # not is tried on the project's code (whose index is built once, ~20 s, so only when it is needed)
+        doc = self.session.document()
+        from .lang.questions import answer as page_answer
+        from .lang.questions import is_question
+        from .lang.base import World
+        from .lang import langs as _langs
+
+        q = page_answer(text, World.from_document(doc["document"], doc["selection"]), doc["document"],
+                        self.session.dialog.last_reading)
+        if q is not None:
+            return Reply("resposta", q.text, True)
+        if self.code_root and is_question(text, _langs.detect(text)):
             from .lang.code_questions import answer, is_code_question
 
             index = self.code_index()
@@ -144,14 +155,6 @@ class Assistant:
             if is_code_question(text, index):
                 a = answer(text, index)
                 return Reply("codigo", a.text, a.kind != "nao_entendi")
-        doc = self.session.document()
-        from .lang.questions import answer as page_answer
-        from .lang.base import World
-
-        q = page_answer(text, World.from_document(doc["document"], doc["selection"]), doc["document"],
-                        self.session.dialog.last_reading)
-        if q is not None:
-            return Reply("resposta", q.text, True)
         before = self.session.state
         a = self.session.ask(text)
         if a.decision == "executado":

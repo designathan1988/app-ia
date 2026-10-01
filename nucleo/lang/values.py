@@ -310,10 +310,16 @@ def _pos(word: str) -> set[str]:
 def color_names() -> dict[str, str]:
     """folded Portuguese color word -> named color ("vermelho" -> "red"). A word several colors translate to names
     the one that lists it first ("azul" is blue's first translation, azure's third)."""
+    from . import langs
     from .lexicon import lemma_of
 
     best: dict[str, tuple] = {}
     trans = _load(TRANSLATIONS)
+    with langs.use("pt"):  # (Portuguese words: lemmatized as Portuguese whatever language is being read)
+        return _color_names(best, trans, lemma_of)
+
+
+def _color_names(best, trans, lemma_of) -> dict[str, str]:
     for color in named_colors():
         for rank, w in enumerate(trans.get(color, [])):
             if {"A", "N"} & _pos(w) and "INF" not in _pos(w):
@@ -324,9 +330,18 @@ def color_names() -> dict[str, str]:
     return {w: c[2] for w, c in best.items() if c[0] <= 1}  # a primary translation, not a figurative sense
 
 
-@lru_cache(maxsize=1)
 def index() -> dict[str, list[tuple[str, str]]]:
-    """folded Portuguese word -> [(property, value)]."""
+    """folded Portuguese word (or CSS keyword, or color name) -> [(property, value)]. Built from Portuguese data
+    (translations, MorphoBr, the Portuguese catalog), so always with the Portuguese lexicon, whatever language is
+    being read when it is first asked for (a cache filled under another language made results depend on order)."""
+    from . import langs
+
+    with langs.use("pt"):
+        return _index()
+
+
+@lru_cache(maxsize=1)
+def _index() -> dict[str, list[tuple[str, str]]]:
     from .lexicon import lemma_of
 
     props = _builder_properties()

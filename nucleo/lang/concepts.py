@@ -250,7 +250,8 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
     from ..builder.scenarios import load_commands as _lc
 
     _cmds = _lc()
-    for verbs in command_verbs.table().values():
+    # (the Portuguese table, which carries each command's English verb: the same whatever language is read first)
+    for verbs in command_verbs._table("pt").values():
         for cv in verbs:
             if cv.english and not cv.rest:
                 for c, k in concepts_of(cv.english, "en", "v")[:3]:

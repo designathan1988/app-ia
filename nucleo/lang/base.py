@@ -330,6 +330,17 @@ def paraphrase(constraints: list, world: World) -> str:
         n = world.nodes.get(nid) if nid else None
         return f"«{n['name']}»" if n else say["element"]
 
+    from .tokenize import contractions
+
+    joined = {v: k for k, v in contractions().items() if len(v) == 2}
+
+    def of(nid):
+        # the preposition and the article written together as the language writes them ("de o elemento" is "do
+        # elemento"), from the treebank's own contraction table read backwards
+        words = f"{_OF()[0]} {name(nid)}".split(" ")
+        pair = tuple(words[:2])
+        return " ".join([joined[pair]] + words[2:]) if pair in joined else " ".join(words)
+
     parts = []
     for c in constraints:
         if c["kind"] == "added":
@@ -347,10 +358,10 @@ def paraphrase(constraints: list, world: World) -> str:
             layer = "" if (c["breakpoint"], c["state"]) == ("desktop", "base") else \
                 f" ({_label('breakpoint', c['breakpoint'])}, {_label('estado', c['state'])})"
             parts.append(f"{langs.action_word('set', lang)} {_label('propriedade', c['property']).lower()} "
-                         f"{_OF()[0]} {name(c['id'])} {say['as']} {c['value']}{layer}")
+                         f"{of(c['id'])} {say['as']} {c['value']}{layer}")
         elif c["kind"] == "field":
             field = say.get(c["field"], c["field"])
-            parts.append(f"{langs.action_word('set', lang)} {field} {_OF()[0]} {name(c['id'])} {say['as']} "
+            parts.append(f"{langs.action_word('set', lang)} {field} {of(c['id'])} {say['as']} "
                          f"{json.dumps(c['value'], ensure_ascii=False)}")
         elif c["kind"] == "command":
             parts.append(f"{c['label'].lower()} {name(c['id'])}" + (f" {say['already']}" if c.get("already") else ""))

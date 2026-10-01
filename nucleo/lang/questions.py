@@ -132,25 +132,34 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     # what the question is about, grounded the same way as requests: the property asked (with its owner) and the
     # element asked about, over the phrases of the question's logical form
     mentions = _question_mentions(lf.build(tokens), tokens)
-    target, prop, family = None, None, None
+    target, options = None, []  # options: (den cost, kind, property ids) of the property asked
     for m in mentions:
         for d in gr.properties(m, world):
-            if prop is None and d.kind in ("prop", "field") and d.data[0] in ("propriedade", "campo"):
-                prop = SimpleProp(d.data[0], d.data[1])
-                owner = d.data[2]
-                if owner is not None and len(owner.data) == 1:
-                    target = owner.data[0]
-            elif family is None and d.kind == "prop" and d.data[0] in ("lista", "familia"):
-                family = d.data
-                owner = d.data[2]
-                if owner is not None and len(owner.data) == 1 and target is None:
-                    target = owner.data[0]
+            if d.kind not in ("prop", "field"):
+                continue
+            kind_, pid, owner = d.data[0], d.data[1], d.data[2]
+            if kind_ in ("propriedade", "campo"):
+                options.append((d.cost, kind_, [pid]))
+            elif kind_ in ("lista", "familia"):
+                from .values import _builder_properties
+
+                ids = list(pid) if kind_ == "lista" else                     [q for q, info in _builder_properties().items() if info.get("valueType") == pid]
+                options.append((d.cost, "propriedade", ids))
+            if owner is not None and len(owner.data) == 1 and target is None:
+                target = owner.data[0]
     if target is None:
         # the element asked about: the phrase that refers to one most directly (cheapest), whatever its position
         found = [(r.cost, k, r.data[0]) for k, m in enumerate(mentions) for r in gr.references(m, world)[:1]
                  if len(r.data) == 1]
         if found:
             target = min(found)[2]
+    wh = _has_wh(tokens, lang)
+    if not wh and kind in ("what", "exist"):
+        # a yes/no question about a state ("o título está centralizado?", "is the button bold?"): the state the
+        # sentence would assert, read by the request engine, checked against the document
+        polar = _polar(text, world, nodes, lang)
+        if polar is not None:
+            return polar
     if kind == "count" or kind == "exist":
         typ = _type_asked(tokens)
         if typ is None:
@@ -174,37 +183,33 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
         return AnswerText("where", _say(lang, f"{_name(world, target)} está em {_name(world, parent)}, na posição {pos}.",
                                         f"{_name(world, target)} is in {_name(world, parent)}, at position {pos}."))
     # what: a property or the text of an element, else its content
-    if prop is not None and target is not None:
-        if prop.kind == "campo" or prop.id in ("text", "texto"):
-            value = nodes[target].get("text")
-        else:
-            value = _style(nodes, target, prop.id)
-        if value is None:
-            return AnswerText("value", _say(lang, f"{prop.label} de {_name(world, target)} não foi definido "
-                                                  f"(vale o padrão do builder).",
-                                            f"The {prop.label.lower()} of {_name(world, target)} is not set "
-                                            f"(the builder's default applies)."))
-        return AnswerText("value", _say(lang, f"{prop.label} de {_name(world, target)}: {value}.",
-                                        f"The {prop.label.lower()} of {_name(world, target)} is {value}."))
-    if family is not None and target is not None:
+    if options and target is not None:
         from .base import _prior
-        from .values import _builder_properties
 
-        kind_, pid = family[0], family[1]
-        cands = list(pid) if kind_ == "lista" else \
-            [q for q, info in _builder_properties().items() if info.get("valueType") == pid]
-        props = sorted(cands, key=lambda p: _prior(p, world.nodes[target]["type"]))
-        prop_id = props[0]
-        value = _style(nodes, target, prop_id)
-        label = _label("propriedade", prop_id)
+        ntype = world.nodes[target]["type"]
+        ranked = []
+        for cost, kind_, ids in options:
+            for pid in ids:
+                if kind_ == "campo" or pid in ("text", "texto"):
+                    value = nodes[target].get("text")
+                    ranked.append((value is None, 0.0, cost, "campo", pid, value))
+                else:
+                    value = _style(nodes, target, pid)
+                    # (the property this element most likely means, and one it has set before one it has not)
+                    ranked.append((value is None, _prior(pid, ntype), cost, "propriedade", pid, value))
+        ranked.sort(key=lambda r: r[:3])
+        _, _, _, kind_, pid, value = ranked[0]
+        label = SimpleProp(kind_, pid).label
         if value is None:
-            return AnswerText("value", _say(lang, f"{label} de {_name(world, target)} não foi definido "
+            return AnswerText("value", _say(lang, f"{label} de {_name(world, target)}: não definido "
                                                   f"(vale o padrão do builder).",
                                             f"The {label.lower()} of {_name(world, target)} is not set "
                                             f"(the builder's default applies)."))
         return AnswerText("value", _say(lang, f"{label} de {_name(world, target)}: {value}.",
                                         f"The {label.lower()} of {_name(world, target)} is {value}."))
-    container = target or next((n for n, v in world.nodes.items() if v["parent"] is None), None)
+    # (the content of the element asked about; with no element of the page in the question, it is not a question
+    # about the page: "o que faz a função createStore?" is for the code)
+    container = target
     if container is None:
         return None
     kids = world.nodes[container]["children"]
@@ -218,6 +223,45 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     items = ", ".join(_name(world, k) + (f" («{nodes[k]['text']}»)" if nodes[k].get("text") else "") for k in kids)
     return AnswerText("content", _say(lang, f"{_name(world, container)} tem: {items}.",
                                       f"{_name(world, container)} has: {items}."))
+
+
+def _has_wh(tokens, lang: str) -> bool:
+    """Whether the question has an interrogative word asking for something ("qual", "o que", "what", "where"): a
+    question without one asks yes or no."""
+    words = " " + " ".join(fold(t.form.lower()) for t in tokens) + " "
+    q = INTERROGATIVES[lang]
+    return any(f" {fold(w)} " in words for kind in ("what", "count", "where", "why") for w in q[kind])
+
+
+def _polar(text: str, world, nodes: dict, lang: str) -> AnswerText | None:
+    """Yes or no: the states the question's sentence states (as the request engine reads it), each compared with
+    the document. None when the sentence states no style (then it is not this kind of question)."""
+    from . import interpret
+
+    its = interpret.interpretations(re.sub(r"\?+\s*$", "", text), world)
+    if not its or its[0].cost > interpret.u_limit():
+        return None
+    best = its[0]
+    cons = list(best.constraints) + [c for f in best.facts for c in f.constraints]
+    if not cons or any(c["kind"] != "style" or c["id"] not in nodes for c in cons):
+        return None
+    yes, parts = True, []
+    for c in cons:
+        have = _style(nodes, c["id"], c["property"], (c["breakpoint"], c["state"]))
+        label = _label("propriedade", c["property"])
+        label = label[:1].lower() + label[1:]
+        if have is None:
+            yes = False
+            parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: não definido (vale o padrão do builder)",
+                              f"the {label.lower()} of {_name(world, c['id'])} is not set (the builder's default "
+                              f"applies)"))
+            continue
+        same = fold(str(have).lower()) == fold(str(c["value"]).lower())
+        yes = yes and same
+        parts.append(_say(lang, f"{label} de {_name(world, c['id'])}: {have}",
+                          f"the {label.lower()} of {_name(world, c['id'])} is {have}"))
+    word = _say(lang, "Sim" if yes else "Não", "Yes" if yes else "No")
+    return AnswerText("polar", f"{word}: " + "; ".join(parts) + ".")
 
 
 @dataclass

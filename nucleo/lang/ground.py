@@ -259,6 +259,15 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
     return [Den("ref", tuple(nodes), cost, frozenset(words), first.notes, amb)] + own[1:]
 
 
+def _interrogative(word: str) -> bool:
+    """An interrogative word of the current language (its closed class, ``questions.INTERROGATIVES``)."""
+    from .questions import INTERROGATIVES
+
+    w = fold(word.lower())
+    return any(w == fold(x) for kind, xs in INTERROGATIVES.get(langs.current(), {}).items() if kind != "exist"
+               for x in xs if " " not in x)
+
+
 def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     """What page nodes a mention (its head phrase, without its coordinated terms) refers to."""
     u = _u()
@@ -268,10 +277,15 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     out = []
     # a pronoun heads its phrase ("isso", "it"); a demonstrative before a noun ("essa imagem", "that image") is a
     # determiner of a description
+    if m.det == "pronoun" and _interrogative(m.head.form):
+        return []  # ("qual", "onde", "what": the unknown a question asks for, not an element already talked about)
     if m.det == "pronoun" and (m.head.upos == "PRON" or fold(m.head.form.lower()) in prof["pronouns"]):
+        # (a personal pronoun takes no description: a word the analysis hung on it, "deixa ele azul", says something
+        # else and must be explained by something else)
         if world.selection:
             out.append(Den("ref", tuple(world.selection), COST["referente_pela_selecao"],
-                           frozenset(t.i for t in content), ("o que está selecionado",)))
+                           frozenset(t.i for t in content if t.i == m.head.i or t.upos in ("DET", "ADP")
+                                     or t.head != m.head.i), ("o que está selecionado",)))
         return out
     if m.new:
         return []  # something said to be new has no referent
@@ -394,7 +408,9 @@ def properties(m: Mention, world) -> list[Den]:
     for start in range(len(seq)):
         for e, n in lexicon.match(seq, {"propriedade", "atributo", "campo"}, start):
             ws = frozenset(t.i for t in toks[start:start + n])
-            if m.head.i in ws:
+            # (the label heads the phrase; or the phrase is a literal classified by the label before it, "the text
+            # 'Sale'", "the name 'Hero'": the literal is that field's value)
+            if m.head.i in ws or is_literal(m.head.form) and toks[start + n - 1].head == m.head.i:
                 kind = "field" if e.kind == "campo" else "prop"
                 out.append(Den(kind, (e.kind, e.id), 0.0, ws))
     if out:
@@ -405,7 +421,10 @@ def properties(m: Mention, world) -> list[Den]:
     if fold(m.head.form.lower()) in campos or lexicon.lemma_of(m.head.form) in campos:
         f = campos.get(fold(m.head.form.lower())) or campos[lexicon.lemma_of(m.head.form)]
         out.append(Den("field", ("campo", f), 0.0, frozenset({m.head.i})))
-    if not out:
+    # (a word that is exactly the catalog's label of an element type means that type: "título" is a heading, not
+    # "right" through a sense of "title" in the concept graph)
+    head_lemma = lexicon.lemma_of(m.head.form)
+    if not out and not any(e.lemmas == (head_lemma,) for e, _ in lexicon.match((head_lemma,), {"tipo"})):
         for g in grounding.meanings(m.head.form, "N"):
             if g.kind == "propriedade" and g.cost <= 1.0:
                 out.append(Den("prop", ("propriedade", g.target), g.cost, frozenset({m.head.i})))

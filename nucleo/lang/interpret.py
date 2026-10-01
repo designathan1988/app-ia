@@ -433,6 +433,11 @@ def _layer(p: lf.Predicate, tokens, world) -> tuple:
             k += 1
             continue
         e, n = hits[0]
+        if n == 1 and _grammatical_use(own[k], tokens):
+            # a one-word label that the sentence uses in its grammatical role is that word, not the label: an adverb
+            # of the verb ("Depois deixa ele azul": then), a preposition of a phrase ("after the title")
+            k += 1
+            continue
         if e.kind == "breakpoint":
             bp = e.id
         else:
@@ -447,6 +452,16 @@ def _layer(p: lf.Predicate, tokens, world) -> tuple:
             j -= 1
         k += n
     return bp, st, ws
+
+
+def _grammatical_use(t, tokens) -> bool:
+    """A word that works as a function in its sentence: a case marker or conjunction, or an adverb of a verb (not of
+    the noun it names a kind of: "no estado depois")."""
+    rel = t.deprel.split(":")[0]
+    if rel in ("case", "mark", "cc"):
+        return True
+    head = next((x for x in tokens if x.i == t.head), None)
+    return rel == "advmod" and (head is None or head.upos in ("VERB", "AUX", "ADJ"))
 
 
 def _sided(args, world, va=None) -> list:
@@ -711,8 +726,12 @@ def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
             fid = "name" if ev.kinds.get("field:name", 9.0) < 1.0 else None
         if fid and fid not in extras:
             extras[fid] = lit.data
-            nested = {x.i for _, b in a.attached for x in b.words}
-            words |= {t.i for t in a.words if t.i not in nested} | set(lit.words)
+            # (what says the field: its label or naming participle, its preposition and article, and the literal;
+            # any other word of the phrase, a clause hung on it, is not explained by the field)
+            owner = field_said[0].data[2] if field_said else None
+            said = (set(field_said[0].words) - set(owner.words if owner else ())) if field_said else {a.head.i}
+            words |= {t.i for t in a.words if t.i in said or t.upos in ("DET", "ADP") and t.head in said | set(lit.words)
+                      or t.i == a.head.i and is_literal(t.form)} | set(lit.words)
     return extras, words
 
 
