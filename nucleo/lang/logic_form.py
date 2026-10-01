@@ -92,6 +92,8 @@ def _subtree(tok, kids) -> list:
 def _case_of(tok, kids) -> str:
     """The preposition(s) of a phrase ("de", "em o fim de" -> its first word kept whole)."""
     marks = [c for c in kids.get(tok.i, []) if _base(c.deprel) in ("case", "mark") and c.i < tok.i]
+    # a multiword preposition is one function word (UD fixed): "para depois de", "em cima de", "on top of"
+    marks += [f for c in list(marks) for f in kids.get(c.i, []) if _base(f.deprel) == "fixed"]
     return " ".join(fold(c.form.lower()) for c in sorted(marks, key=lambda t: t.i))
 
 

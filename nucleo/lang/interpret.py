@@ -108,8 +108,9 @@ def _value_case(case: str) -> bool:
 def _case_tokens(m: lf.Mention) -> set:
     if m is None:
         return set()
-    return {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i and
-            t.deprel.split(":")[0] in ("case", "mark", "fixed")}
+    case = {t.i for t in m.words if t.upos == "ADP" and t.head == m.head.i and
+            t.deprel.split(":")[0] in ("case", "mark")}
+    return case | {t.i for t in m.words if t.head in case and t.deprel.split(":")[0] == "fixed"}
 
 
 @dataclass
@@ -671,7 +672,9 @@ def _after(cands: list, ctx: Context, world) -> Context:
     return Context(salient, topic, n)
 
 
-def interpretations(text: str, world, ctx: Context | None = None) -> list[Interpretation]:
+def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool = False) -> list[Interpretation]:
+    """The readings of a sentence, cheapest first. With `courtesy`, a clause that is only talk ("me faz um favor")
+    is an empty reading (used for the parts of a sentence split at its commas)."""
     ctx = ctx or Context()
     out = []
     for a in alternatives.analyses(text):
@@ -705,6 +708,8 @@ def interpretations(text: str, world, ctx: Context | None = None) -> list[Interp
         if ok and (chosen or facts):
             out.append(Interpretation(total, cons, chosen, a, s,
                                       "assertion" if facts and not chosen else s.predicates[0].act, local, facts))
+        elif ok and courtesy:
+            out.append(Interpretation(total, [], [], a, s, "courtesy", local, []))
     return sorted(out, key=lambda i: i.cost)
 
 
@@ -770,7 +775,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                 # clause on its own is another reading of the sentence, at the cost of the split
                 parts, c2, total = [], ctx, CLAUSE_SPLIT * (len(segs) - 1)
                 for seg in segs:
-                    seg_its = interpretations(seg, work, c2)
+                    seg_its = interpretations(seg, work, c2, courtesy=True)
                     if not seg_its:
                         parts = None
                         break
@@ -779,7 +784,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                     c2 = seg_its[0].context or c2
                 if parts and (not its or total < its[0].cost):
                     rs = [_decide(seg, seg_its, work, lang) for seg, seg_its in parts]
-                    acting = [r for r in rs if r.decision != "fato"]
+                    acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
                     if acting and all(r.decision == "executar" for r in acting):
                         cons = [c for r in acting for c in r.best.constraints]
                         best = u.Reading("texto", cons, total, [], u.paraphrase(cons, world))
@@ -794,7 +799,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         if len(results) == 1:
             results[0].text = text
             return results[0]
-        acting = [r for r in results if r.decision != "fato"]
+        acting = [r for r in results if r.decision not in ("fato", "cortesia")]
         if not acting:
             return u.Understanding(text, results[0].tokens, [], "fato", results[0].message, lang)
         failed = next((r for r in acting if r.decision != "executar"), None)
@@ -825,6 +830,8 @@ def _decide(text, its, world, lang):
     tokens = best.analysis.tokens
     if best.act == "assertion" and not best.cands:
         return u.Understanding(text, tokens, rs, "fato", langs.msg("not_understood", why="afirmação"), lang)
+    if best.act == "courtesy":
+        return u.Understanding(text, tokens, rs, "cortesia", "", lang)
     if rs[0].unknown_verb and best.cost - u.COST["verbo_fora_do_quadro"] > 1.0:
         # the verb means nothing known and the rest does not decide: ask what the verb does (it is then learned)
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)

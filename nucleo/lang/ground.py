@@ -228,9 +228,8 @@ def _chain(m: Mention) -> list:
     can span ("cor de fundo", "tamanho da fonte")."""
     out = list(_content(m))
     for case, a in m.attached:
-        if fold(case) in _of_words():
-            out += [t for t in a.words if t.upos == "ADP" and t.head == a.head.i] + _chain(a)
-            break
+        out += [t for t in a.words if t.upos == "ADP" and t.head == a.head.i] + _chain(a)
+        break  # (the first phrase attached: a label runs on contiguously)
     return sorted(out, key=lambda t: t.i)
 
 
