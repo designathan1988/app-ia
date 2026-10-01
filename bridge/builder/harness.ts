@@ -8,6 +8,7 @@
 import { COMMANDS, PREDICATES } from '/src/app/commands.ts';
 import { createEmptyDocument, type DocumentJson, type Selection } from '/src/core/document/model.ts';
 import { rulesFromManifest, validateDocument } from '/src/core/document/validate.ts';
+import { appliesToOf, elementPredicate } from '/src/core/style/applies.ts';
 import { manualClock } from '/src/core/ports/clock.ts';
 import { sequentialIds } from '/src/core/ports/ids.ts';
 import { noLayout } from '/src/core/ports/layout.ts';
@@ -355,5 +356,23 @@ export function collateral(constraints: any[], start: any, doc: any): any[] {
     }
     out.push(it);
   }
+  return out;
+}
+
+
+// For every node of a document, the properties the builder's own element predicates say do not apply to it
+// (spec props-element-specific: elementPredicate; a predicate that needs more than the element answers null and the
+// property is kept as possible).
+export function applicability(document: DocumentJson) {
+  const out: Record<string, string[]> = {};
+  const props: string[] = (manifest.properties.properties ?? []).map((p: any) => p.id);
+  const walk = (n: any) => {
+    out[n.id] = props.filter((p) => {
+      const pred = appliesToOf(p, RULES);
+      return pred !== null && elementPredicate(pred, n, RULES) === false;
+    });
+    for (const c of n.children ?? []) walk(c);
+  };
+  for (const page of document.pages ?? []) walk(page.tree);
   return out;
 }

@@ -26,10 +26,26 @@ STOP = {"o", "a", "os", "as", "um", "uma", "uns", "umas"}
 
 
 def stop() -> set:
-    """The articles of the current language (not content)."""
+    """The articles of the current language (not content): the forms the UD treebanks mark PronType=Art."""
     from . import langs
 
-    return langs.profile()["articles"]
+    return _articles(langs.current())
+
+
+@lru_cache(maxsize=4)
+def _articles(lang: str) -> frozenset:
+    from .ud import load
+
+    banks = ("ewt",) if lang == "en" else ("bosque", "petrogold", "porttinari")
+    from collections import Counter
+
+    try:
+        c = Counter(w.form.lower() for s in load("train", banks) for w in s.words if "PronType=Art" in w.feats)
+    except Exception:  # noqa: BLE001 - without the treebanks, no word is treated as an article
+        return frozenset()
+    total = sum(c.values())
+    # (annotation noise is rare: a form is an article when it is at least 1% of the article tokens)
+    return frozenset(w for w, n in c.items() if n >= 0.01 * total)
 
 
 def lemma_of(word: str) -> str:
@@ -48,9 +64,10 @@ def lemma_of(word: str) -> str:
 
 
 def lemma_seq(text: str) -> tuple[str, ...]:
-    from .tokenize import contractions
+    from . import langs
+    from .tokenize import treebank_contractions
 
-    table = contractions()
+    table = treebank_contractions(langs.current())  # (the treebank's contractions only)
     words = []
     for w in re.findall(r"[\wÀ-ÿ-]+", text.lower()):
         words += list(table.get(w, (w,)))  # "do" -> "de o", as the parser sees it

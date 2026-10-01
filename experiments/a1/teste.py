@@ -59,14 +59,14 @@ TEST = [
     ("en", "E", "boldface the lead", [S("hp", "font-weight", "bold")], "sinonimo", None),
     # ---------------- ordem ----------------
     ("pt", "L", "em negrito deixa o subtítulo", [S("sub", "font-weight", "bold")], "ordem", None),
-    ("pt", "L", "o banner, apaga", [D("ban")], "ordem", None),
+    ("pt", "L", "o menu, remove ele", [D("menu")], "ordem pronome", None),
     ("pt", "L", "de vermelho pinta o fundo do rodapé", [S("rod", "background-color", "red")], "ordem", None),
     ("pt", "L", "vermelho, o título deve ficar", [S("tit", "color", "red")], "ordem", None),
-    ("pt", "L", "o segundo cartão, duplica", [DUP("c2")], "ordem", None),
+    ("pt", "L", "o segundo cartão, esconde", [H("c2")], "ordem", None),
     ("pt", "L", "para 30px muda a altura do banner", [S("ban", "height", "30px")], "ordem", None),
     ("en", "E", "the image, delete it", [D("im")], "ordem pronome", None),
     ("en", "E", "bold is how the headline should look", [S("ht", "font-weight", "bold")], "ordem nova", None),
-    ("en", "E", "to the footer move the image", [MOV("im", "ft", 1)], "ordem", None),
+    ("en", "E", "to the footer move the nav", [MOV("nv", "ft", 1)], "ordem", None),
     ("en", "E", "blue the sidebar background should be", [S("side", "background-color", "blue")], "ordem", None),
     ("en", "E", "the second item, duplicate", [DUP("f2")], "ordem", None),
     # ---------------- flexao ----------------
@@ -164,7 +164,7 @@ TEST = [
      [MOV("im", "ft", 1), S("ht", "color", "red")], "composto", None),
     ("en", "E", "first hide the nav, then delete the image", [H("nv"), D("im")], "composto nova", None),
     # ---------------- digitacao ----------------
-    ("pt", "L", "deixa o titulo em negrito", [S("tit", "font-weight", "bold")], "digitacao", None),
+    ("pt", "L", "coloca o titlo do painel em negrito", [S("ftit", "font-weight", "bold")], "digitacao", None),
     ("pt", "L", "apga o banner", [D("ban")], "digitacao", None),
     ("pt", "L", "esconde o painle", [H("pai")], "digitacao", None),
     ("pt", "L", "sublinha o subtitlo", [S("sub", "text-decoration-line", "underline")], "digitacao", None),

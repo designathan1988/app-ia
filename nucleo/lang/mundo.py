@@ -47,9 +47,12 @@ def walk(node, parent=None, depth=0):
 
 @dataclass
 class Page:
-    """A read-only view of a document for grounding: nodes by id, parents, order, current styles."""
+    """A read-only view of a document for grounding: nodes by id, parents, order, current styles, and which
+    properties do not apply to which node (the builder's own element predicates: ``applicability``)."""
     doc: dict
     selection: list = field(default_factory=list)
+    hard_na: dict = field(default_factory=dict)  # node -> properties of another kind of element (table, list...)
+    soft_na: dict = field(default_factory=dict)  # node -> properties shown only on text / box elements
 
     def __post_init__(self):
         self.nodes, self.parent, self.order = {}, {}, []
@@ -63,7 +66,17 @@ class Page:
         return [i for i in self.order if self.nodes[i]["type"] == t]
 
     def style(self, node: str, prop: str, bp: str = "desktop", state: str = "base"):
-        return ((self.nodes.get(node, {}).get("styles") or {}).get(bp) or {}).get(state, {}).get(prop)
+        """The node's own value of a property, else what it has unstyled (the builder's base stylesheet for its
+        tag, or the inherited body value: ``base.default_style``)."""
+        own = ((self.nodes.get(node, {}).get("styles") or {}).get(bp) or {}).get(state, {}).get(prop)
+        if own is not None:
+            return own
+        from .base import default_style
+
+        try:
+            return default_style(self.nodes.get(node, {}).get("type"), prop)
+        except Exception:  # noqa: BLE001
+            return None
 
     def index_in_parent(self, node: str) -> int:
         par = self.parent.get(node)
@@ -74,10 +87,40 @@ class Page:
 
 @dataclass
 class Discourse:
-    """What the conversation has made salient: the last entity acted on and the last plan."""
+    """The discourse state: what the conversation has made salient.
+
+    - ``referent``: the entity most recently acted on or mentioned ("ele", "isso", "it");
+    - ``mentioned``: entities in order of mention, most recent last (recency);
+    - ``last``: the previous plan ("o mesmo", "same for", "desfaz");
+    - ``last_property``: the property the previous plan changed;
+    - ``container``: the group the referent belongs to (its parent: "o outro", "o primeiro" among its siblings);
+    - ``created``: the nodes the previous plan created (the result of the previous action).
+    """
     referent: str | None = None
     last: ir.Plan | None = None
-    previous: list = field(default_factory=list)  # entities acted on, most recent last
+    mentioned: list = field(default_factory=list)
+    last_property: str | None = None
+    container: str | None = None
+    created: list = field(default_factory=list)
+
+    def after(self, plan: ir.Plan, page_before: "Page", page_after: "Page") -> "Discourse":
+        """The state after a plan was carried out (the entities it acted on become salient, what it created is
+        remembered)."""
+        mentioned = list(self.mentioned)
+        ref, prop = self.referent, self.last_property
+        for a in plan.steps:
+            if a.target is not None and a.target.kind == "node":
+                ref = a.target.node
+                mentioned.append(ref)
+            p = a.arg("property")
+            if p is not None:
+                prop = p.data
+        created = [n for n in page_after.order if n not in page_before.nodes]
+        if created:
+            ref = created[-1]
+            mentioned += created
+        container = page_after.parent.get(ref) if ref in page_after.nodes else self.container
+        return Discourse(ref, plan if plan.steps else self.last, mentioned[-12:], prop, container, created)
 
 
 def ground_ref(ref: ir.Ref | None, page: Page, disc: Discourse) -> list:
@@ -169,8 +212,14 @@ class Sandbox:
     def run(self, doc: dict, selection: list, steps: list) -> tuple[dict, list, bool]:
         self.b.reset(copy.deepcopy(doc), list(selection))
         ok = True
+        from ..builder.client import BuilderError
+
         for cmd, args in steps:
-            r = self.b.dispatch(cmd, **args)
+            try:
+                r = self.b.dispatch(cmd, **args)
+            except BuilderError:  # (the builder rejects the arguments: the plan failed)
+                ok = False
+                continue
             ok = ok and r.get("status") == "done"
         st = self.b.state()
         return st["document"], st.get("selection", []), ok
@@ -193,3 +242,22 @@ def same_state(a: dict, b: dict, original: dict) -> bool:
     ca = [_canon_node(p["tree"], known) for p in a.get("pages", [])]
     cb = [_canon_node(p["tree"], known) for p in b.get("pages", [])]
     return json.dumps(ca, sort_keys=True) == json.dumps(cb, sort_keys=True)
+
+
+def applicability(builder, page: Page) -> Page:
+    """Fill the page's applicability from the builder (bridge op ``applicability``: src/core/style/applies.ts).
+    A property whose predicate names a kind of element (table, list, media, form control, SVG...) is excluded on
+    other elements; one whose predicate is "text" or "hasBox" is only a learned feature (the builder's inspector
+    still offers it there: a text property on a container is inherited by its text)."""
+    na = builder.call("applicability", document=page.doc)["notApplicable"]
+    props = E.properties()
+    for n, ps in na.items():
+        page.hard_na[n] = {p for p in ps if props.get(p, {}).get("appliesTo") not in ("text", "hasBox")}
+        page.soft_na[n] = {p for p in ps if props.get(p, {}).get("appliesTo") in ("text", "hasBox")}
+    return page
+
+
+def holds_children(page: Page, node: str) -> bool:
+    """Whether an element can contain others (its type's content model in elements.json is "children")."""
+    t = page.nodes.get(node, {}).get("type")
+    return (E.element_types().get(t) or {}).get("content") == "children"

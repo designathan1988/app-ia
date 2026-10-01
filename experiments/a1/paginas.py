@@ -31,11 +31,11 @@ LOJA = full_document([{"tree": _n("pg", "page", "Página", children=[
         _n("ftit", "heading", "Título 2", "Filtros"),
         _n("fpar", "paragraph", "Parágrafo", "Escolha a categoria")]),
     _n("prod", "section", "Produtos", children=[
-        _n("c1", "article", "Cartão 1", margin_left="8px", padding_top="12px", children=[
+        _n("c1", "article", "Cartão 1", margin_left="8px", padding_top="12px", width="240px", children=[
             _n("c1t", "heading", "Título 3", "Café"),
             _n("c1p", "paragraph", "Preço 1", "R$ 20"),
             _n("c1b", "button", "Botão 2", "Adicionar", width="100px")]),
-        _n("c2", "article", "Cartão 2", margin_left="8px", children=[
+        _n("c2", "article", "Cartão 2", margin_left="8px", width="240px", children=[
             _n("c2t", "heading", "Título 4", "Chá"),
             _n("c2p", "paragraph", "Preço 2", "R$ 15"),
             _n("c2b", "button", "Botão 3", "Adicionar ao carrinho", width="100px")])]),

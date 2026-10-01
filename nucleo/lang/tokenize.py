@@ -30,6 +30,37 @@ def contractions() -> dict[str, tuple[str, ...]]:
 
 
 @lru_cache(maxsize=4)
+def treebank_contractions(lang: str) -> dict[str, tuple[str, ...]]:
+    """The contractions of the language as the UD treebanks write them (multiword tokens), and nothing else."""
+    from .syntax import models_dir
+
+    path = models_dir(lang) / "contractions.json"
+    table = {k: tuple(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+    if lang == "en":
+        table = {k: v for k, v in table.items() if "'" in k or "’" in k}
+    return table
+
+
+def tokenize_data(text: str, lang: str) -> list[str]:
+    """``tokenize`` with the treebank's contractions only (no hand-written informal forms): used by A1."""
+    out = []
+    table = treebank_contractions(lang)
+    for m in _TOKEN.finditer(text):
+        tok = m.group(0)
+        low = tok.lower()
+        if lang == "en" and not is_literal(tok) and len(tok) > 2 and low[-2:] in ("'s", "’s") and low not in table:
+            out += [tok[:-2], tok[-2:]]
+            continue
+        if not is_literal(tok) and low in table:
+            parts = table[low]
+            first = parts[0].capitalize() if tok[:1].isupper() else parts[0]
+            out += [first, *parts[1:]]
+        else:
+            out.append(tok)
+    return out
+
+
+@lru_cache(maxsize=4)
 def _contractions(lang: str) -> dict[str, tuple[str, ...]]:
     from .syntax import models_dir
 

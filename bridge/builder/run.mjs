@@ -219,6 +219,9 @@ for await (const line of rl) {
         out({ files });
         break;
       }
+      case 'applicability':
+        out({ notApplicable: h.applicability(req.document ?? store.getState().document) });
+        break;
       case 'manifest':
         out(h.manifestSummary());
         break;
