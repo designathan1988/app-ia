@@ -871,7 +871,8 @@ def _courtesy(p: lf.Predicate, tokens) -> bool:
     anything to the machine."""
     by_i = {t.i: t for t in tokens}
     ev = gr.verb_evidence(p, tokens)
-    specific = ev.commands or ev.pairs or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
+    # (a value reached only through a synonym, "valer" ~ "anular": none, is no specific meaning of the verb)
+    specific = ev.commands or ev.pairs and ev.kinds.get("style", 9.0) < 1.0 or ev.props or ev.cmp or         any(k in ev.kinds and ev.kinds[k] < 1.0 for k in ("added", "removed", "moved", "command"))
     return not specific and not any(_meaningful(by_i[i]) for i in _content_tokens(p) if i != p.head.i and i in by_i)
 
 
@@ -937,7 +938,9 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
                 continue
             if not rs or rs[0].cost > u_limit():
                 if _courtesy(p, a.tokens):
-                    continue  # talk around the request
+                    # talk around the request: left out, at the cost of its words unused
+                    total += UNUSED * len(_content_tokens(p))
+                    continue
             if not rs:
                 ok = False
                 break
@@ -952,10 +955,14 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
                                       "assertion" if facts and not chosen else s.predicates[0].act, local, facts))
         elif ok and courtesy:
             out.append(Interpretation(total, [], [], a, s, "courtesy", local, []))
+        if courtesy and (chosen or facts) and all(_courtesy(p, a.tokens) for p in s.predicates):
+            # a clause that is only talk may also be read as talk ("Valeu!"), against what its words could do
+            out.append(Interpretation(a.cost + COURTESY, [], [], a, s, "courtesy", ctx, []))
     return sorted(out, key=lambda i: i.cost)
 
 
 CLAUSE_SPLIT = 1.0  # reading a comma as the end of a clause the parser did not end
+COURTESY = 1.0  # reading as mere talk a clause whose words could also mean a change
 
 
 def _clauses(sentence: str) -> list[str]:
@@ -1012,7 +1019,8 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         results = []
         for sent in sentences:
             segs = _clauses(sent)
-            its = interpretations(sent, work, ctx)
+            # (a sentence that is only talk, "Valeu!", "Thanks!", is a reading of its own: nothing to do)
+            its = interpretations(sent, work, ctx, courtesy=len(sentences) > 1)
             if len(segs) > 1:
                 # the parser may join clauses a comma separates ("me faz um favor, centraliza o parágrafo"): each
                 # clause on its own is another reading of the sentence, at the cost of the split

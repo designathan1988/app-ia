@@ -114,6 +114,57 @@ def _named(texts, world) -> list:
     return out
 
 
+def _name_key(text: str) -> tuple:
+    """A name as folded words, contractions expanded and articles left out ("Texto do cartão" -> texto de cartao)."""
+    return tuple(w for w in _words(text) if w)
+
+
+def _phrase_names(m: Mention, world) -> list:
+    """Elements whose name is said as words of the phrase, a name of several words included ("o título Café
+    Aurora", "o texto do cartão" for an element named "Texto do cartão"): (node, token indices)."""
+    toks = [t for t in m.words if t.upos != "PUNCT" and fold(t.form.lower()) not in langs.profile()["articles"]]
+    seq = []
+    for t in toks:
+        seq += [(w, t.i) for w in _words(t.form)]
+    words = tuple(w for w, _ in seq)
+    out = []
+    for nid, n in world.nodes.items():
+        key = _name_key(n["name"] or "")
+        if len(key) < 2:
+            continue
+        for k in range(len(words) - len(key) + 1):
+            if words[k:k + len(key)] == key:
+                out.append((nid, frozenset(i for _, i in seq[k:k + len(key)])))
+                break
+    return out
+
+
+def _cross_named(m: Mention, world) -> list:
+    """Elements named in the other language: an English word that shares its concept with a Portuguese name
+    ("the photo" for an element named "Foto", "credits" for "Créditos"), through the wordnets' shared concepts.
+    (node, token indices, cost)."""
+    from . import concepts
+
+    lang = langs.current()
+    other = "pt" if lang == "en" else "en"
+    out = []
+    for t in _content(m):
+        if t.upos not in ("NOUN", "PROPN", "ADJ") or is_literal(t.form):
+            continue
+        mine = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(t.form), lang)[:3]}
+        if not mine:
+            continue
+        for nid, n in world.nodes.items():
+            key = _name_key(n["name"] or "")
+            if len(key) != 1:
+                continue
+            with langs.use(other):
+                theirs = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(n["name"]), other)[:3]}
+            if mine & theirs:
+                out.append((nid, frozenset({t.i}), 0.5))
+    return out
+
+
 def _types(tokens, head=None) -> list:
     """Element types the tokens name: a catalog label (possibly of several words) that includes the phrase's head,
     else the head word's meanings in the concept graph (a modifier does not give the type: "the title paragraph"
@@ -160,17 +211,33 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
         return []  # something said to be new has no referent
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
     names = _named(texts + m.names, world)
+    phrase = _phrase_names(m, world)
+    cross_cost = 0.0
+    if phrase:
+        names = [nid for nid, _ in phrase]
+    elif not names:
+        cross = _cross_named(m, world)
+        if cross:
+            names = [nid for nid, _, _ in cross]
+            cross_cost = min(c for _, _, c in cross)
     types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
     cands: list = []
     cost = 0.0
     notes: tuple = ()
     explained = set()
     if names:
-        typed = [n for n in names if not types or any(world.nodes[n]["type"] == ty for ty, _, _ in types)]
+        # (when the head itself is the name, "the card" for «Cartão», there is no separate type word to check)
+        head_is_name = cross_cost > 0 or any(m.head.i in ws for _, ws in phrase)
+        typed = [n for n in names if head_is_name or not types or
+                 any(world.nodes[n]["type"] == ty for ty, _, _ in types)]
         cands = typed or names
         cost = 0.0 if typed else COST["tipo_diferente_do_nome"]
         explained |= {t.i for t in m.words if literal_value(t.form).lower() in
                       {(world.nodes[n]["name"] or "").lower() for n in names}}
+        explained |= set().union(*(ws for _, ws in phrase)) if phrase else set()
+        if cross_cost:
+            explained |= set().union(*(ws for _, ws, _ in _cross_named(m, world)))
+            cost += cross_cost
         for _, _, ws in types:
             explained |= ws
     elif types:
@@ -203,7 +270,7 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
         if not sub:
             continue
         anchors = set(sub[0].data)
-        inside = [n for n in cands if any(_descends(n, x, world) for x in anchors)]
+        inside = [n for n in cands if any(n == x or _descends(n, x, world) for x in anchors)]
         if inside:
             cands = inside
             explained |= set(sub[0].words) | {t.i for t in a.words if t.upos == "ADP"}
@@ -520,6 +587,9 @@ STATE_OF_FRAME = {"existir": "added", "remover": "removed", "mover": "moved", "e
                   "renomear": "field:name", "atributo": "field:attributes"}
 ALL_STATES = ("style", "command", "added", "removed", "moved", "field:text", "field:name", "field:attributes")
 GRAPH_LIMIT = 3.0
+# a synonym's participle naming values of more properties than this names none in particular (an indirect path;
+# the same rule as values.MAX_KEYWORDS for words)
+MAX_VALUE_PROPS = 2
 
 
 def _verb_candidates(p: Predicate, tokens) -> list[tuple[str, frozenset]]:
@@ -674,10 +744,10 @@ def verb_evidence(p: Predicate, tokens=None) -> Evidence:
 
         for syn in dictionary.synonyms(p.lemma)[:4]:
             for form in participles(syn):
-                for g in grounding.meanings(form, "A"):
-                    if g.kind == "valor" and g.cost == 0.0 and g.target not in ev.pairs:
-                        ev.pairs.append(g.target)
-                        ev.kinds["style"] = 1.0
+                pairs = [g.target for g in grounding.meanings(form, "A") if g.kind == "valor" and g.cost == 0.0]
+                if pairs and len({prop for prop, _ in pairs}) <= MAX_VALUE_PROPS:
+                    ev.pairs += [pr for pr in pairs if pr not in ev.pairs]
+                    ev.kinds["style"] = 1.0
     if not ev.kinds:
         ev.known = False
         ev.kinds = {s: u.COST["verbo_fora_do_quadro"] for s in ALL_STATES}
