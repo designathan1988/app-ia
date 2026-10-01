@@ -76,6 +76,27 @@ def categories(word: str, lang: str) -> frozenset:
     return frozenset(out)
 
 
+CLOSED = {"DET", "PRON", "CCONJ", "SCONJ", "AUX", "PUNCT", "NUM", "SYM"}
+
+
+@lru_cache(maxsize=20_000)
+def _closed_word(word: str, lang: str) -> bool:
+    """A function word of the language: a preposition, article, pronoun or conjunction in the morphology
+    (MorphoBr), or one of the profile's closed classes."""
+    low = word.lower()
+    prof = langs.profile(lang)
+    closed = set(prof["articles"]) | set(prof["pronouns"]) | set(prof.get("valor_casos", [])) | {prof["of"]}
+    if low in closed:
+        return True
+    if lang == "pt":
+        from .morph import analyses
+
+        tags = {tg.split("+")[0] for _, tg in analyses(low)}
+        return bool(tags) and tags <= {"PREP", "DET", "PRON", "CONJ", "ART", "ADV"} and bool(
+            tags & {"PREP", "DET", "PRON", "CONJ", "ART"})
+    return False
+
+
 # -- tree utilities -------------------------------------------------------------------------------------------
 def _base(rel: str) -> str:
     return rel.split(":")[0]
@@ -138,8 +159,8 @@ def _tag_variants(words: list[str], tags: list[str]) -> list[tuple[list[str], li
             # no lexicon knows the form: closed classes are all known, so it is an open-class word
             cats = frozenset({"NOUN", "VERB", "ADJ"})
         alts = [c for c in cats if c != t]
-        if t not in CONTENT and t not in ("ADP", "PART") or not alts:
-            continue
+        if not alts or t in CLOSED or _closed_word(w, lang) or                 w.lower() in tagger.tagdict and t not in CONTENT and t not in ("ADP", "PART"):
+            continue  # a function word keeps its category ("o" is no noun, "para" no verb here)
         options[k] = alts
         if cats and t not in cats:
             doubtful.add(k)  # a category the lexicon does not allow

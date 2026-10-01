@@ -50,6 +50,7 @@ class Cand:
     ambiguous: list = field(default_factory=list)
     unknown_verb: bool = False
     ask_value: tuple | None = None  # (node, property): a change of amount with no current value to start from
+    parts: dict = field(default_factory=dict)  # where the cost comes from (to explain a reading)
 
 
 # -- the arguments ------------------------------------------------------------------------------------------------
@@ -154,8 +155,9 @@ def _style(p, args, ev, world) -> list[Cand]:
             elif v.kind == "cmp":
                 options += _comparative_options(said, ntype)
             if ev.props and any(q in ev.props for q, _, _ in options):
-                # the verb's own meaning is about properties ("alinhar", "align": alignment): one of them
-                options = [o for o in options if o[0] in ev.props]
+                # the verb's own meaning is about properties ("alinhar", "align": alignment): one of them, whatever
+                # the element ("align the image to the right": its alignment, though an image is no text)
+                options = [(q, val, min(c, 1.0)) for q, val, c in options if q in ev.props]
             side_words = _side_words(args, va, ta)
             if side_words and len({q for q, _, _ in options}) > 1:
                 # a side said ("em cima do botão", "on top"): the property of that side
@@ -183,7 +185,9 @@ def _style(p, args, ev, world) -> list[Cand]:
                      "value": u._as_keyword(value, prop)} for n in nodes]
             explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
                 ev.particles | explained_side
-            cost = v.cost + t.cost + prior + ev.kinds.get("style", 9.0)
+            # (the owner's cost is already in the property said when the element is that owner)
+            t_cost = 0.0 if owner is not None else t.cost
+            cost = v.cost + t_cost + prior + ev.kinds.get("style", 9.0)
             if pd is not None:
                 explained |= set(pd.words)
                 cost += pd.cost
@@ -208,6 +212,10 @@ def _style(p, args, ev, world) -> list[Cand]:
                         break
             c = Cand("style", [] if ask else cons, cost, explained, notes, list(nodes) if t.ambiguous else [])
             c.ask_value = ask
+            c.parts = {"valor": v.cost, "alvo": t_cost, "propriedade_a_priori": prior,
+                       "verbo": ev.kinds.get("style", 9.0), "propriedade_dita": pd.cost if pd is not None else 0.0,
+                       "varias": cost - (v.cost + t_cost + prior + ev.kinds.get("style", 9.0) +
+                                         (pd.cost if pd is not None else 0.0))}
             out.append(c)
     return out
 
@@ -480,8 +488,12 @@ def _content_tokens(p: lf.Predicate) -> set:
         elif isinstance(x, lf.Predicate):
             sub = _content_tokens(x)
             toks.update({i: None for i in sub})
+    # a pronoun is content too ("everything", "tudo", "isso" must refer to something), except the speech
+    # participants as subjects ("could you...", "eu quero...")
+    subjects = {x.head.i for r, _, x in p.roles if r == "subj" and isinstance(x, lf.Mention)}
     return {i for i, t in toks.items() if t is None or (t.upos in ("NOUN", "PROPN", "ADJ", "VERB", "ADV", "NUM", "X")
-                                                         or is_literal(t.form)) and t.upos != "PRON"}
+                                                         or is_literal(t.form)) and t.upos != "PRON"
+            or t.upos == "PRON" and i not in subjects and t.deprel.split(":")[0] in ("obj", "obl", "nmod")}
 
 
 def _meaningful(t) -> bool:
@@ -523,6 +535,7 @@ def readings(p: lf.Predicate, world, tokens) -> list[Cand]:
         c.explained |= set(ev.particles)  # the particle is part of the verb ("jogar fora", "get rid of")
         extra, left = _unexplained(p, c, tokens)
         c.cost += extra
+        c.parts["nao_usado"] = extra
         if left:
             c.notes.append("não usado: " + ", ".join(left))
         c.unknown_verb = not ev.known

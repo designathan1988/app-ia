@@ -143,7 +143,9 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
     prof = langs.profile()
     content = _content(m)
     out = []
-    if m.det == "pronoun" or (content and fold(content[0].form.lower()) in prof["pronouns"]):
+    # a pronoun heads its phrase ("isso", "it"); a demonstrative before a noun ("essa imagem", "that image") is a
+    # determiner of a description
+    if m.det == "pronoun" and (m.head.upos == "PRON" or fold(m.head.form.lower()) in prof["pronouns"]):
         if world.selection:
             out.append(Den("ref", tuple(world.selection), COST["referente_pela_selecao"],
                            frozenset(t.i for t in content), ("o que está selecionado",)))
@@ -281,18 +283,19 @@ def values(m: Mention) -> list[Den]:
         if is_literal(t.form) and t.i not in attached:
             out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
     words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
-    if not any(d.kind == "lit" for d in out) and len(words) > 1 and len(words) == len(content) and not m.attached \
-            and not any(meaningful(t) for t in words):
-        # a phrase as said ("Olá mundo"): a text, when none of its words means something else
-        out.append(Den("lit", " ".join(t.form for t in words), 1.0, frozenset(t.i for t in words)))
-    if m.names and not any(d.kind == "lit" for d in out):
-        # a name said bare ("para Destaque", "to Hero"): a literal text as said
-        ws = frozenset(t.i for t in m.words if t.i not in attached and t.upos in ("PROPN", "X", "NOUN", "ADJ")
-                       and literal_value(t.form) in m.names)
-        names = [n for n in m.names if any(literal_value(t.form) == n and t.upos not in ("PART", "ADP", "SCONJ")
-                                           for t in m.words)]
-        if names:
-            out.append(Den("lit", " ".join(names), 0.5, ws or frozenset({m.head.i})))
+    named = [t for t in words if literal_value(t.form) in m.names]
+    if not any(d.kind == "lit" for d in out):
+        if named and len(named) == len(words):
+            # a name said bare ("para Destaque", "por Café Serra", "to Hero"): a literal text as said
+            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5,
+                           frozenset(t.i for t in named)))
+        elif len(words) > 1 and len(words) == len(content) and not m.attached:
+            # a phrase as said ("Olá mundo"): a text; reading words that mean something as a text costs more
+            extra = 2.0 if any(meaningful(t) for t in words if t not in named) else 0.0
+            out.append(Den("lit", " ".join(t.form for t in words), 1.0 + extra, frozenset(t.i for t in words)))
+        elif named:
+            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5,
+                           frozenset(t.i for t in named)))
     ix = value_index()
     if m.det == "indefinite":
         content = []  # a phrase that introduces something ("uma cópia", "a copy") is not a value said
@@ -311,7 +314,8 @@ def values(m: Mention) -> list[Den]:
         if pairs:
             out.append(Den("val", tuple(pairs), 0.0, frozenset({t.i})))
             continue
-        gs = [g for g in grounding.meanings(t.form, "A" if t.upos == "ADJ" else None) if g.kind == "valor"]
+        gs = [g for g in grounding.meanings(t.form, "A" if t.upos == "ADJ" else None) if g.kind == "valor"
+              and g.cost <= 1.0]  # (a far meaning is no value said: "mundo" is not font-size: large)
         if gs:
             best = min(g.cost for g in gs)
             out.append(Den("val", tuple(g.target for g in gs if g.cost <= best + 0.5), best, frozenset({t.i})))
