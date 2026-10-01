@@ -129,7 +129,8 @@ def mention(tok, kids) -> Mention:
             m.attached.append((_case_of(c, kids), mention(c, kids)))
         elif rel == "conj" and c.upos in ("NOUN", "PROPN", "PRON"):
             m.conj.append(mention(c, kids))
-    if tok.upos == "PROPN" or is_literal(tok.form):
+    if tok.upos == "PROPN" or is_literal(tok.form) or tok.form[:1].isupper() and tok.i > 1:
+        # (a capitalised word inside the sentence is a name, whatever category the tagger gave it)
         m.names.insert(0, literal_value(tok.form) if is_literal(tok.form) else tok.form)
     if tok.upos == "PRON" or fold(tok.form.lower()) in prof["pronouns"]:
         m.det = "pronoun"

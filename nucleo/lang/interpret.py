@@ -30,6 +30,7 @@ from .tokenize import is_literal
 from .values import fold
 
 RIVAL_MARGIN = 1.0
+CONSTRUCTION = 1.5  # a meaning the construction gives, not the verb (caused motion, insertion): Goldberg
 MEANINGFUL_UNUSED = 4.5  # a word with a meaning that the reading ignores: never executed silently
 UNUSED = 0.5  # a word that grounds to nothing
 
@@ -398,7 +399,7 @@ def _structural(p, args, ev, world) -> list[Cand]:
             own = [(Arg("obl", c, x, []), d) for c, x in a.mention.attached for d in gr.place(c, x, world)]
             opts = [(pa, pd) for pa, pd in places if pa is not a] + own or [(None, None)]
             for pa, pd in opts:
-                cost = k.cost + ev.kinds.get("added", 9.0)
+                cost = k.cost + ev.kinds.get("added", CONSTRUCTION if ev.known and pd is not None else 9.0)
                 explained = set(k.words) | {p.head.i}
                 parent = index = None
                 notes = []
@@ -435,7 +436,7 @@ def _structural(p, args, ev, world) -> list[Cand]:
             for n in t.data:
                 parent, index = u._placement(rel, anchors[0], world, moving=n)
                 cons.append({"kind": "moved", "id": n, "parent": parent, "index": index})
-            out.append(Cand("moved", cons, t.cost + pd.cost + ev.kinds.get("moved", 9.0),
+            out.append(Cand("moved", cons, t.cost + pd.cost + ev.kinds.get("moved", CONSTRUCTION if ev.known else 9.0),
                             set(t.words) | set(pd.words) | {p.head.i} | _case_tokens(pa.mention), list(t.notes),
                             list(t.data) if t.ambiguous else list(anchors) if pd.ambiguous else []))
     return out
@@ -502,6 +503,9 @@ def _fields(p, args, ev, world) -> list[Cand]:
         if state not in ev.kinds or ev.kinds[state] >= 4.0:
             continue
         targets = _themes(p, args) + [(a, d) for a in args for d in a.of("place") if d.data[0] == "dentro"]
+        # (a place attached to the text itself: "escreve X no botão" either way)
+        targets += [(Arg("obl", c, x, []), d) for la, _ in lits for c, x in la.mention.attached
+                    for d in gr.place(c, x, world) if d.data[0] == "dentro"]
         for (ta, t), (la, lit) in itertools.product(targets, lits):
             if la is ta or t.kind == "place" and la.role == "obl":
                 continue

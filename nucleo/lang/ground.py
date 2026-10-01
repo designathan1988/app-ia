@@ -413,6 +413,8 @@ def place(case: str, m: Mention, world) -> list[Den]:
     rel = place_relation(cw) if cw else None
     if rel:
         between = set(cw) & {fold(x) for x in langs.profile().get("between", set())}
+        if between and not any(t.upos == "CCONJ" for t in m.words):
+            return out  # "entre", "between" needs its two terms: the place is after the first, before the second
         for r in references(m, world):
             ws = r.words | {m.head.i} | (frozenset(t.i for t in m.words) if between else frozenset())
             out.append(Den("place", (rel, r.data), r.cost, ws, r.notes, r.ambiguous))
@@ -447,8 +449,8 @@ def meaningful(t) -> bool:
     """A word that means something to the machine: a literal, a label, or a near meaning in the concept graph."""
     from .values import index as value_index
 
-    if is_literal(t.form):
-        return True
+    if is_literal(t.form) or place_relation((fold(t.form.lower()),)):
+        return True  # (a place word, "depois", "below", is the grammar of places)
     if grounding.direct(t.form) or lexicon.match((lexicon.lemma_of(t.form),), KINDS_LABELLED) or \
             value_index().get(fold(lexicon.lemma_of(t.form))):
         return True
