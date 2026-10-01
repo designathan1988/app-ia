@@ -17,11 +17,13 @@ Output: data/cache/a1_auditoria.json and a summary (python experiments/a1/audito
 """
 from __future__ import annotations
 
+import argparse
 import ast
 import inspect
 import json
 import pathlib
 import re
+import runpy
 import sys
 import textwrap
 
@@ -60,6 +62,8 @@ KNOWN = {
     ("nucleo.lang.acoes_ranker", "SUPPORTED"): ("estrutural", "argument type names of the ActionSchema"),
     ("nucleo.lang.acoes_ranker", "UNITS"): ("externa", "CSS length units (W3C)"),
     ("nucleo.lang.acoes_ranker", "WIDTH"): ("estrutural", "search widths (parameters)"),
+    ("nucleo.lang.acoes_ranker", "INIT"): ("estrutural", "initial weights of feature kinds; literal evidence 'lit' "
+                                               "is not a word weight; check_init separately audits lexical keys"),
     ("nucleo.lang.ud", "TREEBANKS"): ("externa", "file names of the UD treebanks"),
     ("nucleo.lang.evidencia", "_GRAPH_KIND"): ("estrutural", "internal names of the kinds of schema constants"),
     ("nucleo.lang.langs", "PROFILES"): ("legado", "reached only through langs.use (language registry) and "
@@ -69,7 +73,8 @@ KNOWN = {
 # legacy references the profiler shows the pipeline reaches, and why they do not put hand knowledge in A1's output
 LEGACY_OK = {
     ("nucleo.lang.concepts", "_anchors", "FRAME_COMMANDS"): "builds anchors of kind 'acao' only; evidencia drops "
-                                                             "that kind (_GRAPH_KIND), so nothing of it reaches A1",
+                                                             "that kind before its retrieval cap (_GRAPH_KIND); "
+                                                             "tests/test_a1_legacy_isolation.py checks noninterference",
     ("nucleo.lang.langs", "use", "PROFILES"): "checks that a language code is known",
     ("nucleo.lang.langs", "profile", "profile("): "called by lexicon._load for the catalog's file name only",
     ("nucleo.lang.langs", "profile", "PROFILES"): "called by lexicon._load for the catalog's file name only",
@@ -78,35 +83,69 @@ LEGACY_OK = {
 CSS_UNITS = {"px", "rem", "em", "vh", "vw", "ms", "deg", "fr"}
 
 
+class Profiler:
+    """Record reached project functions and actual top-level generation calls."""
+
+    def __init__(self):
+        self.executed = set()
+        self.generate_calls = 0
+        self._codes = {}
+        self._running = False
+        self._previous = None
+
+    def _profile(self, frame, event, arg):
+        if event != "call":
+            return
+        code = frame.f_code
+        key = id(code)
+        cached = self._codes.get(key)
+        # One code object can be reused with another globals namespace. Guard
+        # that identity so caching cannot hide a different module's function.
+        if cached is None or cached[1] is not frame.f_globals:
+            mod = frame.f_globals.get("__name__", "")
+            if mod.startswith("nucleo."):
+                self.executed.add((mod, code.co_name, code.co_firstlineno))
+            is_generate = mod == "nucleo.lang.acoes_ranker" and code.co_name == "generate"
+            cached = (code, frame.f_globals, is_generate)
+            self._codes[key] = cached
+        if cached[2] and not frame.f_locals.get("_segment", False):
+            self.generate_calls += 1
+
+    def start(self):
+        if self._running:
+            raise RuntimeError("audit profiler already running")
+        self._previous = sys.getprofile()
+        self._running = True
+        sys.setprofile(self._profile)
+
+    def stop(self):
+        if self._running:
+            sys.setprofile(self._previous)
+            self._running = False
+
+
 def run_pipeline():
     from avaliar import DEV, TRAIN, context
     from nucleo.lang.acoes_ranker import Ranker
     from nucleo.lang.mundo import Sandbox
 
-    executed = set()
-
-    def prof(frame, event, arg):
-        if event == "call":
-            mod = frame.f_globals.get("__name__", "")
-            if mod.startswith("nucleo."):
-                executed.add((mod, frame.f_code.co_name, frame.f_code.co_firstlineno))
-
+    profiler = Profiler()
     sb = Sandbox()
     try:
-        r = Ranker()
         # Audit development paths without consuming the one-shot held-out gate.
         items = TRAIN + DEV
-        sys.setprofile(prof)
+        profiler.start()
         try:
+            r = Ranker()
             for it in items:
                 pg, disc = context(it, sb)
                 cx = r.context(it[2], it[0], pg, disc)
                 r.rank(cx, r.generate(cx))
         finally:
-            sys.setprofile(None)
+            profiler.stop()
     finally:
         sb.close()
-    return executed, len(items)
+    return profiler, {"TRAIN": len(TRAIN), "DEV": len(DEV)}
 
 
 def _natural(word: str) -> bool:
@@ -202,17 +241,19 @@ def check_init() -> list:
     return bad
 
 
-if __name__ == "__main__":
-    from runtime import lower_priority
-    lower_priority()
-    executed, n = run_pipeline()
+def write_report(profiler, *, scope, dataset_counts):
+    """Write the audit of the run already observed; never interpret more items."""
+    executed = profiler.executed
     found = inspect_functions(executed)
     from nucleo.lang.evidencia import ORIGINS
 
     intent_rules = [c for c in found["literal_collections"] if c["class"] == "UNREVIEWED" and c["natural_words"]]
     intent_regex = [r for r in found["regexes"] if r["class"] == "INTENT REGEX"]
     report = {
-        "utterances_run": n,
+        "scope": scope,
+        "dataset_counts": dict(dataset_counts),
+        "utterances_run": profiler.generate_calls,
+        "top_level_generation_calls": profiler.generate_calls,
         "functions_executed": len(executed),
         "modules_executed": found["modules"],
         "legacy_hand_knowledge_reached": found["legacy_references"],
@@ -237,3 +278,31 @@ if __name__ == "__main__":
         print("REGEX", x)
     for x in found["literal_collections"]:
         print("COLLECTION", x["module"], x["name"], x["class"], x["natural_words"][:6])
+    return report
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--portao", action="store_true", help="audit the single complete A1 gate execution")
+    args, forwarded = parser.parse_known_args(argv)
+    if not args.portao and forwarded:
+        parser.error("evaluation arguments require --portao")
+    if args.portao:
+        if "--dev" in forwarded:
+            parser.error("--portao requires the complete evaluation, without --dev")
+        # avaliar.py owns the profiler lifecycle for its complete gate. Delegating
+        # once preserves dialogue state, training, ablations and honest counts.
+        previous = sys.argv
+        sys.argv = [str(HERE / "avaliar.py"), *forwarded]
+        try:
+            return runpy.run_path(str(HERE / "avaliar.py"), run_name="__main__")
+        finally:
+            sys.argv = previous
+    from runtime import lower_priority
+    lower_priority()
+    profiler, counts = run_pipeline()
+    return write_report(profiler, scope="development", dataset_counts=counts)
+
+
+if __name__ == "__main__":
+    main()

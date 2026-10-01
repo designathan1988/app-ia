@@ -370,6 +370,45 @@ def pct(xs, q):
     return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else 0
 
 
+def measure_dev_latency(ranker, items, sandbox) -> dict:
+    """Time warm DEV inference only; preserve all existing evaluation statistics.
+
+    Document/discourse preparation is outside the timer. The timed interpret
+    call includes linguistic analysis, generation, ranking and decoding. Call
+    after evaluation has warmed the resources; no gold or action is executed.
+    """
+    if sys.getprofile() is not None:
+        raise RuntimeError("latency measurement requires the profiler to be stopped")
+    previous_stats = ranker.stats
+    measured = {"gen_secs": [], "rank_secs": [], "n": []}
+    total_secs = []
+    ranker.stats = measured
+    try:
+        for item in items:
+            # Project only inference inputs; never even read item[3] (gold).
+            request = (item[0], item[1], item[2], (), "", item[5])
+            pg, disc = context(request, sandbox)
+            start = time.perf_counter()
+            interpret(ranker, request[2], request[0], pg, disc)
+            total_secs.append(time.perf_counter() - start)
+        def mean_ms(values):
+            return round(1000 * statistics.mean(values), 3) if values else 0.0
+
+        def p95_ms(values):
+            return round(1000 * pct(values, .95), 3)
+
+        return {
+            "dataset": "DEV", "n": len(total_secs), "warm": True, "profiling_enabled": False,
+            "total_ms_mean": mean_ms(total_secs), "total_ms_p95": p95_ms(total_secs),
+            "gen_ms_mean": mean_ms(measured["gen_secs"]),
+            "gen_ms_p95": p95_ms(measured["gen_secs"]),
+            "rank_ms_mean": mean_ms(measured["rank_secs"]),
+            "rank_ms_p95": p95_ms(measured["rank_secs"]),
+        }
+    finally:
+        ranker.stats = previous_stats
+
+
 def preflight(sandbox, dev_only: bool) -> dict:
     """Only the gate may execute held-out gold or inspect holdout combinations."""
     sets = {"DEV": DEV} if dev_only else EVAL_SETS
@@ -392,9 +431,14 @@ if __name__ == "__main__":
     report["leakage"] = leakage(TRAIN, {"DEV": DEV} if dev_only else EVAL_SETS)
     print(json.dumps({"hashes": hs, "leakage": {k: v["counts"] for k, v in report["leakage"].items()}}), flush=True)
     sb = Sandbox()
+    profiler = None
     try:
         report.update(preflight(sb, dev_only))
         print(json.dumps({"gold_errors": report["gold_errors"]}, ensure_ascii=False), flush=True)
+        if not dev_only:
+            from auditoria import Profiler, write_report
+            profiler = Profiler()
+            profiler.start()
         r = Ranker()
         report["train"] = train(r, TRAIN, epochs, sb)
         print(json.dumps({"train": report["train"], "secs": round(time.time() - t0)}), flush=True)
@@ -417,7 +461,8 @@ if __name__ == "__main__":
         r.stats = {"gen_secs": [], "rank_secs": [], "n": []}
         report["sets"] = evaluate_sets(r, sb, lem, forms)
         n = r.stats["n"]
-        report["cost"] = {"operations_in_schema": len(E.schemas()),
+        report["cost"] = {"profiling_enabled": profiler is not None,
+                          "operations_in_schema": len(E.schemas()),
                           "candidates_mean": round(statistics.mean(n), 1), "candidates_p50": pct(n, .5),
                           "candidates_p95": pct(n, .95), "candidates_max": max(n),
                           "gen_ms_mean": round(1000 * statistics.mean(r.stats["gen_secs"]), 1),
@@ -443,8 +488,16 @@ if __name__ == "__main__":
                 abl[name] = table([score_item(ra, it, sb) for it in TEST + HOLDOUT])["ALL"]
                 print("ablation", name, abl[name], flush=True)
             report["ablations"] = abl
+        if profiler is not None:
+            profiler.stop()
+        report["latency_without_profiler"] = measure_dev_latency(r, DEV, sb)
+        print("latency_without_profiler", report["latency_without_profiler"], flush=True)
     finally:
+        if profiler is not None:
+            profiler.stop()
         sb.close()
+    if profiler is not None:
+        report["audit"] = write_report(profiler, scope="gate", dataset_counts=report["counts"])
     report["secs"] = round(time.time() - t0)
     (ROOT / "data" / "cache" / "a1_relatorio.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
