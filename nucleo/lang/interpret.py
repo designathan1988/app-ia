@@ -1469,11 +1469,26 @@ def _last_wins(cons: list) -> list:
 
 def _names(world) -> list:
     """The names of the page's elements (no evidence of the language a request is in)."""
-    return [n.get("name") or "" for n in world.nodes.values()]
+    return [n.get("name") or "" for n in world.nodes.values()] + \
+        [n["text"] for n in world.nodes.values() if isinstance(n.get("text"), str)]
 
 
 def _effect(constraints: list) -> tuple:
-    return tuple(sorted(repr(sorted(c.items())) for c in constraints))
+    """What the constraints do, whatever way they say it: a name or text given to an element the same text creates
+    is part of its creation ("insere uma imagem com o nome X" = "insere uma imagem e chama ela de X")."""
+    created, out = [], []
+    for c in constraints:
+        if c["kind"] == "added":
+            created.append(dict(c))
+            continue
+        nid = str(c.get("id") or "")
+        if c["kind"] == "field" and nid.startswith("$novo") and c.get("field") in ("name", "text"):
+            k = int(nid[5:]) - 1
+            if 0 <= k < len(created):
+                created[k][c["field"]] = c["value"]
+                continue
+        out.append(c)
+    return tuple(sorted(repr(sorted(c.items())) for c in created + out))
 
 
 def understand_request(text: str, world, by: str = "usuario", lang: str | None = None):

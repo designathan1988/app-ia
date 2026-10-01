@@ -105,11 +105,21 @@ def _case_words(case: str) -> tuple:
 
 
 # -- references -------------------------------------------------------------------------------------------------
+def _labels_of(n: dict) -> list:
+    """What a person calls an element: its name, and the text it shows (a heading the editor named «Título» is "the
+    Café Aurora heading" to whoever reads the page)."""
+    out = [n.get("name") or ""]
+    text = n.get("text")
+    if isinstance(text, str) and text.strip() and len(text.split()) <= 6:
+        out.append(text.strip())
+    return [x for x in out if x]
+
+
 def _named(texts, world) -> list:
     out = []
     for nid, n in world.nodes.items():
-        name = (n["name"] or "").lower()
-        if name and any(x.lower() == name for x in texts):
+        names = [x.lower() for x in _labels_of(n)]
+        if names and any(x.lower() in names for x in texts):
             out.append(nid)
     return out
 
@@ -158,12 +168,13 @@ def _phrase_names(m: Mention, world) -> list:
     words = tuple(w for w, _ in seq)
     out = []
     for nid, n in world.nodes.items():
-        key = _name_key(n["name"] or "")
-        if len(key) < 2:
-            continue
-        for k in range(len(words) - len(key) + 1):
-            if words[k:k + len(key)] == key:
-                out.append((nid, frozenset(i for _, i in seq[k:k + len(key)])))
+        for label in _labels_of(n):
+            key = _name_key(label)
+            if len(key) < 2:
+                continue
+            hit = next((k for k in range(len(words) - len(key) + 1) if words[k:k + len(key)] == key), None)
+            if hit is not None:
+                out.append((nid, frozenset(i for _, i in seq[hit:hit + len(key)])))
                 break
     return out
 
@@ -493,6 +504,7 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
         if -len(ordered) <= k < len(ordered):
             explained |= {t.i for t in m.words if fold(t.form.lower()) in prof["ordinals"]}
             return [Den("ref", (ordered[k],), cost + COST["referente_por_tipo"], frozenset(explained), notes)]
+        return []  # ("a segunda foto" with one photo: there is no second)
     if len(cands) == 1:
         return [Den("ref", tuple(cands), cost + (0.0 if names else COST["referente_por_tipo"]), frozenset(explained),
                     notes)]
@@ -645,8 +657,11 @@ def values(m: Mention) -> list[Den]:
             head = next((x for x in m.words if x.i == t.head), None)
             if t.form.isdigit() and head is not None and head.form[:1].isupper() and head.i > 1 and                     not is_literal(head.form):
                 # a number after a name ("Livro 3", "Capa 2", "Book 3"): the name with its number, as said
-                phrase = [x for x in m.words if x.i not in attached and x.upos not in ("DET", "ADP", "PUNCT", "PART")
-                          and x.deprel.split(":")[0] not in ("case", "mark", "det", "cc", "punct")]
+                # (the name and its own words only: "chama ela de Foto 1" is "Foto 1", not the whole phrase)
+                phrase = sorted([head] + [x for x in m.words if x.head == head.i and x.i not in attached and
+                                          (x.form.isdigit() or x.upos in ("PROPN", "NOUN", "NUM", "ADJ")) and
+                                          x.deprel.split(":")[0] not in ("case", "mark", "det", "cc", "punct")],
+                                key=lambda x: x.i)
                 out.append(Den("lit", " ".join(literal_value(x.form) for x in phrase), 0.25,
                                frozenset(x.i for x in phrase)))
                 out.append(Den("lit", literal_value(t.form), 1.0, frozenset({t.i})))
@@ -883,6 +898,8 @@ def meaningful(t) -> bool:
         return True  # (a place word, "depois", "below", is the grammar of places)
     if t.form[:1].isupper() and t.i > 1:
         return True  # (a name said inside the sentence, "chama ele de Endereço": information a reading must use)
+    if fold(t.form.lower()) in langs.profile()["ordinals"]:
+        return True  # (an ordinal picks which element: "a terceira foto" without it is another request)
     if t.upos in ("VERB", "AUX") and _u()._in_frame(t.lemma):
         return True  # (a verb of a known frame, "chamar" = to name: leaving it out leaves out what it asks)
     if grounding.direct(t.form) or lexicon.match((lexicon.lemma_of(t.form),), KINDS_LABELLED) or \

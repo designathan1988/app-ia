@@ -205,7 +205,8 @@ class World:
             nodes[n["id"]] = {"name": n.get("name"), "type": n.get("type"), "parent": parent, "index": index,
                               "children": [c["id"] for c in n.get("children", [])],
                               "flags": {k: v for k, v in n.items() if isinstance(v, bool)},
-                              "styles": n.get("styles") or {}}
+                              "styles": n.get("styles") or {},
+                              "text": n.get("text") if isinstance(n.get("text"), str) else None}
             for i, c in enumerate(n.get("children", [])):
                 walk(c, n["id"], i)
 

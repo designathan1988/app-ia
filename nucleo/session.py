@@ -75,6 +75,12 @@ class Session:
 
     def _continue_dialogue(self, text: str) -> Answer | None:
         p, self.dialog.pending = self.dialog.pending, None
+        ws = dialogue._words(text)
+        if p is not None and not p.verb and len(ws) > 3 and ws[0] not in dialogue.YES | dialogue.NO and \
+                self._understood(text):
+            # a whole request understood on its own ("Coloca outra imagem na seção Topo...") is a new request, not
+            # an answer picked by its words: the open question is dropped
+            p = None
         if p is not None:
             choice = dialogue.choose(p, text)
             if choice == "nao":

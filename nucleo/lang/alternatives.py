@@ -383,7 +383,9 @@ class page_names:
     def __init__(self, world) -> None:
         from .values import fold
 
-        names = {(n.get("name") or "").strip() for n in world.nodes.values()}
+        names = {(n.get("name") or "").strip() for n in world.nodes.values()} | \
+            {n["text"].strip() for n in world.nodes.values()
+             if isinstance(n.get("text"), str) and 1 < len(n["text"].split()) <= 6}
         self.names = tuple(sorted({tuple(fold(w.lower()) for w in tokenize(x)) for x in names
                                    if len(tokenize(x)) > 1}, key=len, reverse=True))
 

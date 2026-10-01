@@ -612,6 +612,18 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - detecção de língua: as palavras fechadas do inglês que a wordnet não lista ("where", "is").
 - **Medidas:** regressão 246 com 0 errados; rodadas 7 a 12 com 0 errados; M5 93,7% e 0 silenciosos.
 
+### Segunda verificação de ponta a ponta (assistente, sessão e builder reais)
+- As classes que os conjuntos não cobriam, corrigidas pela raiz:
+  - **referência pelo texto visível:** o mundo guarda o texto de cada elemento, e um elemento é chamado pelo
+    nome ou pelo texto que mostra ("the Café Aurora heading" é o título que o editor chamou «Título»);
+  - o literal "nome + número" é só o nome e o seu número ("chama ela de Foto 1"), não a frase inteira;
+  - o mesmo efeito dito de dois jeitos não é rival (criar com nome = criar e depois nomear);
+  - um pedido completo depois de uma pergunta é um pedido novo, não a resposta escolhida pelas palavras (exceto
+    a resposta a "o que faz o verbo X?");
+  - um ordinal além dos candidatos não tem referente ("a terceira foto" com uma foto);
+  - um ordinal deixado de fora custa como palavra com significado.
+- **Medidas:** regressão 246 com 0 errados; rodadas 7 a 12 com 0 errados; M5 93,7% e 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
