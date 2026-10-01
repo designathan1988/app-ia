@@ -111,7 +111,7 @@ def evidence(word: str, lang: str) -> tuple:
                 for k, t, st, o in _from_catalog(fold(s)) + _from_values(fold(s)) + _from_graph(fold(s), "pt")[:8]:
                     out.append((k, t, 0.5 * st, "synonym"))
             for tr in dictionary.translations(word)[:4]:
-                for w in _words(tr):
+                for w in sorted(_words(tr)):
                     for k, t, st, o in _from_catalog(w) + _from_values(w):
                         out.append((k, t, 0.7 * st, "translation"))
         except Exception:  # noqa: BLE001
@@ -121,7 +121,7 @@ def evidence(word: str, lang: str) -> tuple:
         key = (k, t, o)
         if st > best.get(key, 0.0):
             best[key] = st
-    return tuple((k, t, st, o) for (k, t, o), st in best.items())
+    return tuple((k, t, st, o) for (k, t, o), st in sorted(best.items()))
 
 
 @lru_cache(maxsize=10_000)

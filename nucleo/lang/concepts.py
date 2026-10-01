@@ -240,10 +240,10 @@ def _anchors() -> dict[str, list[tuple[tuple, float]]]:
             if key in cat:
                 anchor(("propriedade", pid), cat[key], lang, extra=0.3)
         # its keywords are English words: each names a value of this property
-        for kw in _keywords(pid) - GLOBAL:
+        for kw in sorted(_keywords(pid) - GLOBAL):
             if re.fullmatch(r"[a-z]+(-[a-z]+)*", kw):
                 anchor(("valor", (pid, kw)), kw.replace("-", " "), "en", extra=0.2, limit=2)
-    for color in named_colors():
+    for color in sorted(named_colors()):
         for c, k in concepts_of(color, "en")[:1]:  # a color word's first sense is the color
             for p in color_properties():
                 out.setdefault(c, []).append((("valor", (p, color)), k))
@@ -328,7 +328,8 @@ def meanings(word: str, lang: str = "pt", pos: str | None = None, limit: float =
             step = REL_COST.get(t)
             if step is not None and nb not in dist and d + step <= limit:
                 heapq.heappush(heap, (d + step, nb, path + ((nb, t),)))
-    return sorted(((e, v[0], v[1]) for e, v in best.items()), key=lambda x: x[1])
+    # Consumers cap the retrieved list: ties must not inherit set/cache order.
+    return sorted(((e, v[0], v[1]) for e, v in best.items()), key=lambda x: (x[1], x[0]))
 
 
 def explain(path: tuple, lang: str = "pt") -> str:

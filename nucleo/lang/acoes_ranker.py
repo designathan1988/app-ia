@@ -282,7 +282,7 @@ class Context:
         sc = E.schemas()[sid]
         return self._f(_merge(self.lex("op", sid, ACTING), self.lex("ns", sc.namespace, ACTING), self.evf("op", sid),
                               {("op-bias", sid): 1.0, ("op-lab",): self.lab("op", sid)},
-                              {("op-slotev", sid, k): 1.0 for k in self.slot_ev}))
+                              {("op-slotev", sid, k): 1.0 for k in sorted(self.slot_ev)}))
 
     def node(self, n: str, role: str) -> dict:
         key = (n, role)
