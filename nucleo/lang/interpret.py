@@ -982,6 +982,38 @@ def _clauses(sentence: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _coordinated(sentence: str) -> list[str]:
+    """The clauses of a coordination ("e", "and", "depois"): split at the coordinating conjunctions the tagger
+    finds; a part with no verb takes the verb of the part before it (gapping: "deixa X em negrito e Y em
+    itálico" = "deixa X em negrito" + "deixa Y em itálico")."""
+    toks = alternatives.analyses(sentence)[0].tokens if sentence.strip() else []
+    if not toks:
+        return []
+    parts, cur = [], []
+    for t in toks:
+        if t.upos == "CCONJ" and cur:
+            parts.append(cur)
+            cur = []
+            continue
+        cur.append(t)
+    if cur:
+        parts.append(cur)
+    if len(parts) < 2:
+        return []
+    out, verb = [], None
+    for part in parts:
+        text = " ".join(t.form for t in part)
+        has_verb = any(t.upos in ("VERB", "AUX") and t.deprel.split(":")[0] in ("root", "conj") for t in part)
+        if has_verb:
+            verb = next((t.form for t in part if t.upos in ("VERB", "AUX")), verb)
+        elif verb is not None:
+            text = f"{verb} {text}"
+        else:
+            return []
+        out.append(text)
+    return out
+
+
 def u_limit() -> float:
     return _u().LIMIT
 
@@ -1018,12 +1050,15 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
         work = _world_with(world, Context())
         results = []
         for sent in sentences:
-            segs = _clauses(sent)
             # (a sentence that is only talk, "Valeu!", "Thanks!", is a reading of its own: nothing to do)
             its = interpretations(sent, work, ctx, courtesy=len(sentences) > 1)
-            if len(segs) > 1:
-                # the parser may join clauses a comma separates ("me faz um favor, centraliza o parágrafo"): each
-                # clause on its own is another reading of the sentence, at the cost of the split
+            # other segmentations of the sentence into clauses, each read on its own at the cost of the split: at its
+            # commas ("me faz um favor, centraliza o parágrafo") and at its coordinations, a clause without a verb
+            # taking the previous one's (gapping: "deixa X em negrito e Y em itálico")
+            chosen_split = None
+            for segs in (_clauses(sent), _coordinated(sent)):
+                if len(segs) < 2:
+                    continue
                 parts, c2, total = [], ctx, CLAUSE_SPLIT * (len(segs) - 1)
                 for seg in segs:
                     seg_its = interpretations(seg, work, c2, courtesy=True)
@@ -1033,16 +1068,23 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                     parts.append((seg, seg_its))
                     total += seg_its[0].cost
                     c2 = seg_its[0].context or c2
-                if parts and (not its or total < its[0].cost):
-                    rs = [_decide(seg, seg_its, work, lang) for seg, seg_its in parts]
-                    acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
-                    if acting and all(r.decision == "executar" for r in acting):
-                        cons = [c for r in acting for c in r.best.constraints]
-                        best = u.Reading("texto", cons, total, [], u.paraphrase(cons, world))
-                        results.append(u.Understanding(sent, [t for r in rs for t in r.tokens], [best], "executar",
-                                                       best.paraphrase, lang))
-                        ctx = c2
-                        continue
+                if not parts or its and total >= its[0].cost:
+                    continue
+                if chosen_split is not None and total >= chosen_split[1]:
+                    continue
+                rs = [_decide(seg, seg_its, work, lang) for seg, seg_its in parts]
+                acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
+                if acting and all(r.decision == "executar" for r in acting):
+                    chosen_split = (rs, total, c2)
+            if chosen_split is not None:
+                rs, total, c2 = chosen_split
+                acting = [r for r in rs if r.decision not in ("fato", "cortesia")]
+                cons = [c for r in acting for c in r.best.constraints]
+                best = u.Reading("texto", cons, total, [], u.paraphrase(cons, world))
+                results.append(u.Understanding(sent, [t for r in rs for t in r.tokens], [best], "executar",
+                                               best.paraphrase, lang))
+                ctx = c2
+                continue
             r = _decide(sent, its, work, lang)
             results.append(r)
             if its:

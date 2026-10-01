@@ -250,7 +250,7 @@ FOURTH = [
     ("desce o botão", C("element.moveDown", "b")),
     ("deixa o texto do botão branco", S("color", "white", "b")),
     ("muda a cor de fundo da seção pra #222222", S("background-color", "#222222", "s")),
-    ("make the paragraph bold and red", "perguntar"),
+    ("make the paragraph bold and red", S("font-weight", "bold", "p")),  # and red (coordination)
     ("i want the title centered", S("text-align", "center", "t")),
     ("the button should be blue", S("color", "blue", "b")),
     ("set the letter spacing of the title to 2px", S("letter-spacing", "2px", "t")),
@@ -306,7 +306,7 @@ SIXTH = [
     ("preciso que o título fique maior", "perguntar"),
     ("muda o texto do parágrafo pra Olá mundo", {"kind": "field", "field": "text", "value": "Olá mundo"}),
     ("a cor do título tem que ser vermelha", S("color", "red", "t")),
-    ("deixa o título vermelho e o botão azul", "perguntar"),
+    ("deixa o título vermelho e o botão azul", S("color", "red", "t")),  # and the button blue (coordination)
     ("põe o título em negrito e itálico", S("font-weight", "bold", "t")),  # and italic (coordination)
     ("alinha tudo à esquerda", "perguntar"),
     ("apaga o primeiro parágrafo", {"kind": "removed", "id": "p"}),
