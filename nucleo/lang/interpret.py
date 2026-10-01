@@ -433,7 +433,12 @@ def _literal_options(said, lit, ntype) -> list:
     vtype = builder.get(pid, {}).get("valueType")
     from .values import literal_kinds
 
-    takes = (u._value_kind(lit) in u.ACCEPTS.get(vtype, ()) if vtype in u.ACCEPTS else u._value_fits(pid, lit)) or         u._value_kind(lit) in literal_kinds(pid)
+    kind_ = u._value_kind(lit)
+    if kind_ == "other":
+        takes = _fits(pid, lit)  # a function or a phrase ("oklab(...)", "blur(8px)"): the builder judges it
+    else:
+        takes = (kind_ in u.ACCEPTS.get(vtype, ()) if vtype in u.ACCEPTS else u._value_fits(pid, lit)) or \
+            kind_ in literal_kinds(pid)
     if takes:
         out.append((pid, lit, u._prior(pid, ntype)))
     entry = next((e for e in lexicon.load() if e.kind == "propriedade" and e.id == pid and e.lemmas != (pid,)), None)
@@ -895,13 +900,14 @@ def _sentences(text: str) -> list[str]:
     import re
 
     parts, buf, quote = [], "", None
-    for ch in text:
+    for k, ch in enumerate(text):
         buf += ch
         if ch in "\"“”" and quote is None:
             quote = "”" if ch == "“" else ch
         elif quote is not None and ch == quote:
             quote = None
-        elif quote is None and ch in ".!?;":
+        elif quote is None and ch in ".!?;" and (k + 1 == len(text) or text[k + 1].isspace()):
+            # (a point inside a number or a name, "0.5", "1.5rem", is not the end of a sentence)
             parts.append(buf)
             buf = ""
     if buf.strip():

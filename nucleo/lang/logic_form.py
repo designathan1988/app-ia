@@ -129,6 +129,10 @@ def mention(tok, kids) -> Mention:
                 rel == "appos" and not _case_of(c, kids) and not kids.get(c.i):
             # (an apposition has no preposition: "do parágrafo" labelled appos is a modifier, kept with its phrase)
             m.names.append(literal_value(c.form) if is_literal(c.form) else c.form)
+            # (phrases the parser hung on the name belong to the phrase: "o contêiner Actions como 'X'")
+            for g in kids.get(c.i, []):
+                if _base(g.deprel) in ("nmod", "obl", "acl"):
+                    m.attached.append((_case_of(g, kids), mention(g, kids)))
         elif rel in ("nmod", "obl", "acl", "appos"):
             m.attached.append((_case_of(c, kids), mention(c, kids)))
         elif rel == "conj" and c.upos in ("NOUN", "PROPN", "PRON"):
