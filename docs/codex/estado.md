@@ -70,7 +70,9 @@ sessão anterior citou ao usuário. Use sempre o @10.
 | 13 | make it a bit smaller (fora) | DIV → valor "smaller" | geração (operação relativa) |
 | 14 | hide the first card (fora) | o cartão → o título dele | resolução de entidade (ordinal) |
 
-Elas se agrupam em cinco mecanismos. Cada um deve ser corrigido **uma vez, no mecanismo**, e nunca por frase:
+**Diagnóstico, não ordem.** Na leitura da passagem, as falhas se agrupam em cinco mecanismos. As sugestões abaixo
+são hipóteses: o Codex decide o que atacar, em que ordem e como, e pode descartá-las. A única regra fixa é corrigir
+no mecanismo, nunca por frase.
 1. **Ordinais e cadeias de genitivo** (#1, #3, #9, #14): a referência deve escolher entre os irmãos do tipo nomeado
    ("cartão"), não entre os descendentes. Isso entra como traço estrutural aprendido sobre a relação entre o nó e o
    tipo nomeado, sem lista de palavras ordinais escrita à mão. A evidência de "primeiro" deve vir de recurso
@@ -85,16 +87,16 @@ Elas se agrupam em cinco mecanismos. Cada um deve ser corrigido **uma vez, no me
    candidata reaplicável a um novo alvo, e um traço `ctx` aprendido decide.
 5. **Inserção com posição** (#10): a geração de `element.insert` com `parent`/`index` a partir de "at the end of".
 
-## Próxima tarefa, em ordem
-1. **Fechar a A1 no DEV.** Meta de trabalho: cand@10 ≥ 95% e rank@1 o mais alto possível. Cada mecanismo acima vira
-   um commit, com a medida DEV antes e depois registrada no diário. A auditoria (`auditoria.py`) deve continuar sem
-   regra manual.
+## Marcos (a especificação define os critérios; o caminho entre eles é do Codex)
+1. **Fechar a A1 no DEV.** Meta de trabalho: cand@10 ≥ 95% e rank@1 o mais alto possível. Medidas e commits vão no
+   diário. A auditoria (`auditoria.py`) deve continuar sem regra manual.
 2. **Portão da A1.** Uma execução completa de `avaliar.py`, uma vez só. Depois, escrever
    `docs/codex/relatorio_a1.md` com a tabela da spec 2 §17 (dataset, geração, ranking, generalização, idiomas,
    execução, integridade, hashes) e os números reais de `data/cache/a1_relatorio.json`.
    - **Passou** em todos os critérios da spec 2 §18: registre e siga para a A2.
-   - **Falhou:** pare, registre os números, a análise de erro por categoria e a causa, e espere o revisor. Não ajuste
-     nada olhando erros do TEST.
+   - **Falhou:** registre os números, a análise de erro por categoria e a causa, e decida o próximo caminho. Mudar
+     de abordagem é permitido. Não ajuste nada olhando erros individuais do TEST. Um novo portão exige um conjunto
+     de teste novo, congelado antes de ser medido.
 3. **A2: parsing semântico completo.** Composição aprendida (CCG sobre a IR, com léxico induzido, usando
    `nucleo/lang/ccg/`): "aumente a margem esquerda do segundo botão" deve ser derivado composicionalmente, e a
    derivação deve ser uma variável latente aprendida pela execução (spec 1 §3, §4, §7).

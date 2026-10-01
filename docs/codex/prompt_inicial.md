@@ -34,5 +34,5 @@ Não pare para perguntar nem para relatar à toa: continue até concluir a etapa
 Quando o revisor publicar um veredito novo em `docs/codex/revisao.md`, cole no Codex:
 
 ```
-Há uma revisão nova em docs/codex/revisao.md. Leia, aplique primeiro o que estiver marcado EXIGIDO, registre no diário e continue a partir de "Próxima tarefa".
+Há uma revisão nova em docs/codex/revisao.md. Leia; se apontar violação de regra ou de integridade, corrija; o resto é informação. Depois continue pelo caminho que você julgar melhor.
 ```

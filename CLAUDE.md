@@ -4,7 +4,11 @@
 - A implementação passou para o **Codex**. As instruções dele estão em `AGENTS.md` e `docs/codex/`:
   `especificacao.md` (a especificação do usuário, que governa), `estado.md`, `progresso.md` (diário do Codex) e
   `prompt_inicial.md`.
-- O Claude **revisa**, não implementa. A cada revisão:
+- **O Codex trabalha livremente** (decisão do usuário, 2026-10-01). Ele escolhe técnicas, ordem e abordagem, e pode
+  mudar de abordagem. O Claude **não delimita escopo nem dita passos**: nada de prazos, ordens de tarefa ou
+  critérios de método inventados por ele.
+- O Claude só **verifica a integridade**, e só nos marcos (portão, fim de etapa, mudança grande de abordagem) ou
+  quando o usuário pedir. A cada revisão:
   - `git log` e `git diff` desde a anterior;
   - integridade: `experiments/a1/congelado.json` intacto, TEST só no portão, sem injeção do ouro;
     `experiments/a1/auditoria.py` limpo; grep de regras linguísticas novas;

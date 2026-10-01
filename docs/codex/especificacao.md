@@ -15,6 +15,23 @@ qualquer outro documento do repositório, **este arquivo vence**.
   UBL/FUBL, aprendizado por execução e as metas externas (DocEdit, MASSIVE). Não são a sequência de trabalho.
 - **GeoQuery e MATIS** são só evidência auxiliar de que o mecanismo funciona. Não voltam a ser objetivo.
 
+## Direção posterior do usuário (2026-10-01, ~16:25): prevalece sobre a frase "NÃO reinicie a arquitetura"
+Palavras do usuário, sobre como o implementador deve trabalhar:
+
+> "O CERTO NÃO É VOCÊ DEIXAR ELE TRABALHAR LIVREMENTE, SEM FICAR DELIMITANDO ESCOPO? ELE NÃO DEVERIA FAZER AS
+> COISAS, VER SE DA CERTO, MUDAR ABORDAGEM SE PRECISAR, DEFINIR OS MELHORES CAMINHOS,E TC?" e, em seguida,
+> "ENTÃO FAÇA ISSO".
+
+Como isso se aplica:
+- o implementador escolhe técnicas, ordem e caminhos, e muda de abordagem, inclusive de arquitetura, quando a
+  medida mostrar que o caminho atual não chega ao objetivo;
+- o motivo de cada mudança de rumo vai no diário;
+- o **objetivo** e as **proibições** das especificações abaixo continuam valendo integralmente: sem LLM, sem
+  regex de intenção, sem `if/switch` por palavra, sem listas de paráfrases ou sinônimos, sem remendo por frase,
+  sem gold no TEST e sem vazamento;
+- a sequência A1 → A4 e os critérios de cada etapa servem como **marcos de medida**, não como roteiro obrigatório
+  de implementação.
+
 ---
 
 ## Especificação 1 (2026-10-01, 13:59): arquitetura e A1

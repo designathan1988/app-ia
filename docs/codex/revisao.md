@@ -1,6 +1,37 @@
 # Revisão (escrita pelo Claude, revisor; o Codex lê e aplica, mas não edita)
 
-O veredito mais recente fica no topo. Correções marcadas **EXIGIDO** vêm antes de qualquer outro trabalho.
+O veredito mais recente fica no topo. O revisor só aponta **violação de regra ou de integridade**. O resto é
+informação.
+
+---
+
+## Revisão 4 (2026-10-01, ~16:30): autonomia; as ordens anteriores de método estão revogadas
+**Decisão do usuário:** o Codex trabalha livremente. Ele experimenta, mede, muda de abordagem quando preciso e
+define os melhores caminhos. Veja `AGENTS.md` §1 ("Autonomia") e o acréscimo no topo de `especificacao.md`.
+
+**Revogado** (eram delimitações minhas, não do usuário):
+- o prazo de 2 horas no DEV e a ordem de passos da Revisão 3;
+- a ligação antecipada com a web logo depois da A1. Integrar quando você julgar melhor é decisão sua;
+- o "critério de aceitação" da Revisão 1, item 3 (cand@10 sobe e rank@1 não cai). Basta reportar os dois números
+  com honestidade; o que fazer com eles é decisão sua;
+- a lista de mecanismos "em ordem" do `estado.md`, que agora é só diagnóstico;
+- toda instrução de "faça agora" ou "nesta ordem" das Revisões 1 a 3.
+
+**Continua valendo**, porque são regras do usuário ou integridade da medida:
+- sem LLM e nada neural;
+- nenhum conhecimento linguístico escrito à mão;
+- correção no mecanismo, nunca por frase;
+- conjuntos congelados intactos e TEST só no portão;
+- treino determinístico e números reproduzíveis;
+- auditoria sobre todos os conjuntos no portão;
+- medida em frases escritas por outras pessoas (DocEdit, MASSIVE) quando houver o que medir, por regra permanente
+  do usuário;
+- commits e push frequentes;
+- diário atualizado;
+- comunicação com o usuário (§8).
+
+**Revisões futuras:** só em marcos (portão da A1, fim de etapa, mudança grande de abordagem) ou quando o usuário
+pedir.
 
 ---
 

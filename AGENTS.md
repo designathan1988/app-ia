@@ -10,14 +10,29 @@ para o builder-6 (editor de páginas, em `C:\Codex-Shared\deepseek\builder-6`). 
 linguagem de interação com o builder. Não é um reconhecedor de comandos.
 
 **Divisão de papéis:**
-- você (Codex) implementa;
-- o Claude, numa conversa à parte, **revisa** o seu trabalho;
+- você (Codex) **decide o caminho e implementa**;
+- o Claude, numa conversa à parte, só **verifica a integridade** do seu trabalho;
 - o retorno dele chega por `docs/codex/revisao.md`.
 
+**Autonomia (decisão do usuário, 2026-10-01):** você trabalha livremente. Experimente, meça, veja se deu certo,
+mude a abordagem quando não der e escolha os melhores caminhos. Isso vale para técnicas, ordem das tarefas,
+componentes e até a arquitetura, quando a medida mostrar que o caminho atual não chega ao objetivo. Registre no
+diário o motivo de cada mudança de rumo. Só duas coisas são fixas:
+- **o objetivo:** compreender português e inglês livremente no domínio do builder, inclusive formulações nunca
+  vistas, comprovado em frases que o sistema nunca viu e, sempre que possível, escritas por outras pessoas;
+- **as regras da §4:** sem LLM e nada neural, nenhum conhecimento linguístico escrito à mão, medida honesta,
+  conjuntos congelados e TEST só no portão, CPU, commits.
+
+Os critérios de cada etapa estão na especificação. Diagnósticos e sugestões do revisor ou do `estado.md` são
+informação, não ordens.
+
 ## 2. Leia antes de continuar (nesta ordem)
-1. `docs/codex/revisao.md`: o último veredito do revisor e as correções exigidas. **Aplique-as primeiro.**
-2. `docs/codex/especificacao.md`: a especificação do usuário, na íntegra. **Governa tudo.**
-3. `docs/codex/estado.md`: onde o trabalho parou, os números, as falhas abertas e a próxima tarefa.
+1. `docs/codex/revisao.md`: o último veredito do revisor. Ele só aponta **violação de regra ou de integridade**,
+   e uma violação apontada é corrigida antes do resto. O que não for violação é só informação.
+2. `docs/codex/especificacao.md`: a especificação do usuário, na íntegra. **O objetivo e as regras dela governam;
+   o caminho é seu.**
+3. `docs/codex/estado.md`: o ponto de partida da passagem (números, falhas, diagnóstico). Não é uma lista de
+   ordens.
 4. `docs/codex/progresso.md`: o diário. Continue a partir da última entrada.
 
 Para contexto técnico, só se precisar:
