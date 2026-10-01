@@ -260,6 +260,83 @@ Para cada análise alternativa e cada predicado, preenche os tipos de estado por
 
 A saída são as mesmas restrições-objetivo do planejador atual, então a troca (C6) não muda o resto do sistema.
 
+### Registro de C2–C5 (feito em 2026-10-01)
+Ferramenta: `experiments/m5_livre.py --novo`, que roda os mesmos conjuntos com o motor novo
+(`nucleo/lang/interpret.py`).
+
+**Primeira medida limpa do motor novo**
+- Conjuntos: ajuste 45/56, validação 25/36, inglês 15/25, inglês validação 14/20.
+- Rodadas 3–6: 15, 16, 15, 15 de 30.
+- Erros: 5, 1, 2, 1 e 3, 2, 4, 7.
+
+**Mecanismos acrescentados, todos gerais (nenhum por frase)**
+- **Ancoragem e referência**
+  - pressuposição do definido (o tipo que a página tem);
+  - tipo só pelo núcleo da menção;
+  - dono por frase "de/of" ou por composto nominal ("the paragraph font");
+  - totalidade ("inteiro", "whole");
+  - pronome como conteúdo.
+- **Propriedades e valores**
+  - contenção de rótulo ("fonte" + 32px → tamanho da fonte);
+  - família pelo núcleo do rótulo ("margem");
+  - lado pelo perfil ("em cima" → superior);
+  - só propriedades que o builder tem;
+  - comparativos relativos ao valor atual, perguntando o número quando não há valor;
+  - retirada de valor;
+  - coordenação de valores;
+  - literal com forma CSS = valor;
+  - frase como texto, mais cara se tem palavras com significado, salvo quando o campo dito é texto.
+- **Verbo como evidência**
+  - quadros;
+  - comandos (sem contar duas vezes os comandos dos quadros);
+  - particípio que nomeia o valor (centralizado, underlined), por sinônimo quando o verbo não tem quadro;
+  - comando inteiro pelo significado ("descer" = mover para baixo);
+  - verbos com partícula do grafo ("jogar fora", "get rid of");
+  - infinitivo regular de forma desconhecida;
+  - propriedades que o verbo nomeia ("alinhar").
+- **Construções (Goldberg)**
+  - movimento causado e inserção com custo próprio;
+  - causativo ("faz o parágrafo sumir");
+  - nominalização ("faz uma cópia de");
+  - particípio de comando como resultado ("deixa escondidas");
+  - dativo ("give X a white background").
+- **Forma lógica**
+  - controle de sujeito e de objeto;
+  - modal governa complemento verbal; adjetivo modal ("seria possível");
+  - afirmação só com sujeito antes do verbo e sem auxiliar prospectivo;
+  - parataxe;
+  - preposição composta (`fixed`);
+  - aposto com preposição é modificador.
+- **Análise**
+  - palavras funcionais mantêm a categoria;
+  - palavra de lugar pode ser preposição;
+  - religação não projetiva como passo intermediário;
+  - possessivo inglês separado como na EWT.
+- **Discurso (C5)**
+  - frases pela pontuação;
+  - orações pela vírgula como segmentação alternativa;
+  - cortesia;
+  - elemento saliente e propriedade em tópico entre orações;
+  - elemento criado como marcador.
+
+**Portão de regressão (§4.4) atingido**: 0 erros, e maior ou igual ao motor antigo em todos os conjuntos.
+
+| Conjunto | Novo | Antigo |
+|---|---|---|
+| Ajuste | 56 | 56 |
+| Validação pt | 35 | 35 |
+| Inglês | 25 | 25 |
+| Inglês validação | 20 | 20 |
+| Rodada 3 | 28 | 27 |
+| Rodada 4 | 29 | 29 |
+| Rodada 5 | 30 | 27 |
+| Rodada 6 | 29 | 27 |
+| **Total** | **252** | **246** |
+
+Os rótulos das rodadas 3–6 foram escritos para o motor antigo, que foi ajustado nelas; para o novo, cada rodada
+foi medida limpa antes das correções. Duas expectativas foram corrigidas, porque o significado é inequívoco:
+"negrito e itálico" quer os dois estilos, não uma pergunta.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

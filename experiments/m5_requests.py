@@ -73,6 +73,15 @@ def replay(b, st, plan):
     return st
 
 
+NOVO = "--novo" in sys.argv  # the rebuilt engine (nucleo/lang/interpret.py)
+
+
+def understand_new(text, world):
+    from nucleo.lang.interpret import understand as new
+
+    return new(text, world)
+
+
 def main(per=2, rename=False, limit=None, seed_offset=0):
     domains = load_domains()
     c = collections.Counter()
@@ -112,7 +121,7 @@ def main(per=2, rename=False, limit=None, seed_offset=0):
                          for _ in range(per)}
             for text in sorted(x for x in sentences if x):
                 c["pedidos"] += 1
-                u = understand(text, world)
+                u = (understand_new if NOVO else understand)(text, world)
                 outcome = u.decision
                 if u.decision == "executar":
                     res = planner.solve_constraints(st, u.best.constraints)
@@ -139,7 +148,7 @@ def main(per=2, rename=False, limit=None, seed_offset=0):
         m = max(c[f"{part}: pedidos"], 1)
         print(f"  {part} (cenários {'1-300' if part == 'ajuste' else '301+'}): {c[f'{part}: pedidos']} pedidos, "
               f"top-1 {c[f'{part}: certo'] / m:.1%}, erro silencioso {c[f'{part}: ERRO SILENCIOSO'] / m:.1%}")
-    name = ("m5_requests_renomeado" if rename else "m5_requests") + (f"_s{seed_offset}" if seed_offset else "") + ".json"
+    name = ("m5_requests_renomeado" if rename else "m5_requests") + (f"_s{seed_offset}" if seed_offset else "") +         ("_novo" if NOVO else "") + ".json"
     (DATA / name).write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
     return c
 

@@ -199,6 +199,31 @@ def run_old(verbose: bool = False) -> dict:
     return counts
 
 
+def run_new(verbose: bool = False) -> dict:
+    """The rebuilt engine (nucleo/lang/interpret.py): the whole text at once (sentences, clauses, discourse)."""
+    from nucleo.lang.interpret import understand
+
+    w = world()
+    counts = {"certo": 0, "perguntou": 0, "ERRADO": 0}
+    for text, expected in ITEMS:
+        u = understand(text, w)
+        acted = u.decision == "executar"
+        got = u.best.constraints if acted and u.best else []
+        if expected in ("perguntar", "fato"):
+            outcome = "certo" if not acted else "ERRADO"
+        elif acted and _match(got, expected):
+            outcome = "certo"
+        elif acted:
+            outcome = "ERRADO"
+        else:
+            outcome = "perguntou"
+        counts[outcome] += 1
+        if verbose and outcome != "certo":
+            print(f"[{outcome}] {text}
+    -> {u.decision}: {u.message[:160]}")
+    return counts
+
+
 if __name__ == "__main__":
     import json
 
@@ -210,3 +235,6 @@ if __name__ == "__main__":
     t = time.time()
     print("motor atual:", json.dumps(run_old("-v" in sys.argv)), f"de {len(ITEMS)} em {time.time() - t:.1f}s",
           f"(hash {h[:12]})")
+    if "--novo" in sys.argv:
+        t = time.time()
+        print("motor novo:", json.dumps(run_new("-v" in sys.argv)), f"de {len(ITEMS)} em {time.time() - t:.1f}s")
