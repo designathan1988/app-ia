@@ -142,3 +142,62 @@ Os demais são substantivos ancorados a tipos de elemento por coincidência:
   diagnóstico da §1.
 - O erro silencioso é baixo (2,2% e 0,8%), mas não é zero.
 - O maior bloco é "não entendi" (73%): é falta de cobertura, não erro de decisão.
+
+### Projeto da D2 (escrito antes de codificar)
+
+**Recursos**
+- **Frames do PropBank 3.4** (`data/externo/propbank/`, 7.566 arquivos). Cada roleset traz:
+  - seus papéis, com a **função** de cada um (PAG agente, PPT paciente, GOL destino, SRC origem, DIR direção, LOC
+    lugar, VSP atributo, ...);
+  - as ligações com classes do **VerbNet** e frames do **FrameNet**.
+- **Universal Propositions**: frases anotadas com roleset e argumentos.
+  - EWT, ouro: 12.543 frases de treino.
+  - Bosque, prata: verbos portugueses anotados com rolesets ingleses ("encontrar" → `meet.03`). É daqui que sai o
+    léxico verbo português → roleset, por contagem, sem tabela escrita à mão.
+
+**Rotulador de papéis** (linear, no estilo do MATE/Björkelund et al. 2009)
+1. **Identificação do predicado:** perceptron por palavra (lema, categoria, relação, categoria da cabeça).
+2. **Roleset:** o mais frequente do lema no treino; se o lema não aparece, o de mesmo lema nos frames.
+3. **Argumentos:** os candidatos são podados por Xue e Palmer (dependentes do predicado e dos seus ancestrais). Um
+   perceptron escolhe o rótulo, ou NENHUM, usando:
+   - o caminho de dependências;
+   - a posição;
+   - a voz;
+   - o lema do predicado;
+   - a palavra, a categoria e a relação do argumento;
+   - a preposição.
+4. O treino usa as árvores do próprio analisador (as que ele vai ver), não as árvores-ouro.
+
+**Do roleset ao estado do builder**
+- Os estados são ligados no nível do **frame do FrameNet**, uma vez, numa tabela pequena e documentada. Não é por
+  verbo. Por exemplo:
+  - Motion, Cause_motion, Placing → `moved`;
+  - Removing, Destroying → `removed`;
+  - Creating, Building, Intentionally_create → `added`;
+  - Cause_change, Cause_change_of_position_on_a_scale → `style`;
+  - Text_creation → `field:text`;
+  - Name_conferral → `field:name`.
+- Os papéis vêm pela **função**:
+  - PPT é o elemento;
+  - GOL é o destino ou o valor final;
+  - SRC é a origem ou o valor anterior, que **nunca** é o valor pedido. Isso resolve na raiz a classe da D0 "from
+    right to mid" → `right`.
+- `STATE_OF_FRAME` e as listas de verbos do perfil são substituídos por isso.
+
+**Portão da D2**
+- F1 de argumentos rotulados no dev do UP, registrado.
+- A ação no dev do DocEdit melhora.
+- A segurança não piora.
+
+### D1, primeira medida (2026-10-01): analisador rotulado, português, dev
+
+`experiments/externo/d1_parser.py pt 10`: 20.081 frases de treino, 10 épocas, 24 min.
+
+| dev | LAS atual | LAS D1 | ganho |
+|---|---|---|---|
+| Bosque | 76,95 | 81,45 | +4,5 |
+| PetroGold | 80,38 | 85,35 | +5,0 |
+| Porttinari | 79,95 | 85,08 | +5,1 |
+
+O ganho sem nenhuma regra nova é de +4,5 a +5,1 LAS, e o UAS sobe de 2,6 a 3,1 pontos. O portão (+5 em todos)
+ainda não está fechado: falta o Bosque, e o inglês não foi treinado.
