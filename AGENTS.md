@@ -122,3 +122,21 @@ Ao fim de **cada** passo, acrescente uma entrada **no topo**, abaixo do cabeçal
 - Próximo passo: <uma frase>
 ```
 O revisor avalia por este diário e pelo `git log`. Uma entrada sem comando e sem número não conta como progresso.
+
+## 8. Comunicação com o usuário
+
+Estas regras valem em todas as sessões e complementam a autonomia da seção 4: narrar o trabalho não significa
+parar para pedir permissão ou esperar uma resposta.
+
+1. Antes de começar cada passo, escreva de 1 a 3 frases, em português simples: o que vai fazer, por quê (qual
+   falha ou mecanismo está atacando) e como vai saber se deu certo.
+2. Antes de rodar algo demorado (treino, avaliação ou testes), avise o que vai rodar e quanto tempo deve levar.
+3. Ao terminar cada medida, mostre **cand@10, rank@1 e IR/ação/estado**, comparados com a medida anterior, e diga
+   em uma frase se melhorou, piorou ou ficou igual, e por quê. Se a causa ainda não estiver demonstrada, diga isso.
+4. A cada commit, diga o hash e resuma em uma frase o que foi preservado.
+5. Se algo der errado ou mudar de plano, diga na hora o que aconteceu e o que fará em seguida.
+6. Nunca fique mais de alguns minutos sem dar notícia. Se estiver esperando um processo, diga isso.
+7. Ao fim de cada etapa, faça um resumo curto: o que foi feito, os números atuais, o que falta para a A1 passar
+   (meta: **cand@10 ≥ 95%**) e o próximo passo.
+
+Continue trabalhando sem parar para pedir permissão; a comunicação acompanha a execução.
