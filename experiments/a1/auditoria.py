@@ -79,7 +79,7 @@ CSS_UNITS = {"px", "rem", "em", "vh", "vw", "ms", "deg", "fr"}
 
 
 def run_pipeline():
-    from avaliar import CONTRASTE, DEV, HOLDOUT, TEST, TRAIN, context
+    from avaliar import DEV, TRAIN, context
     from nucleo.lang.acoes_ranker import Ranker
     from nucleo.lang.mundo import Sandbox
 
@@ -94,7 +94,8 @@ def run_pipeline():
     sb = Sandbox()
     try:
         r = Ranker()
-        items = TRAIN + DEV + TEST + HOLDOUT + CONTRASTE
+        # Audit development paths without consuming the one-shot held-out gate.
+        items = TRAIN + DEV
         sys.setprofile(prof)
         try:
             for it in items:
@@ -202,6 +203,8 @@ def check_init() -> list:
 
 
 if __name__ == "__main__":
+    from runtime import lower_priority
+    lower_priority()
     executed, n = run_pipeline()
     found = inspect_functions(executed)
     from nucleo.lang.evidencia import ORIGINS

@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import collections
 import copy
-import ctypes
 import hashlib
 import json
 import pathlib
@@ -38,6 +37,10 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
+
+if __name__ == "__main__":
+    from runtime import lower_priority
+    lower_priority()
 
 from contrastes import PAIRS  # noqa: E402
 from dev import DEV  # noqa: E402
@@ -367,8 +370,17 @@ def pct(xs, q):
     return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else 0
 
 
+def preflight(sandbox, dev_only: bool) -> dict:
+    """Only the gate may execute held-out gold or inspect holdout combinations."""
+    sets = {"DEV": DEV} if dev_only else EVAL_SETS
+    report = {"gold_errors": sum((check_gold(sandbox, items, name)
+                                  for name, items in (("TRAIN", TRAIN), *sets.items())), [])}
+    if not dev_only:
+        report["holdout_new_combinations"] = holdout_check(sandbox)
+    return report
+
+
 if __name__ == "__main__":
-    ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     epochs = int(args[0]) if args else 6
     t0 = time.time()
@@ -376,20 +388,25 @@ if __name__ == "__main__":
     report: dict = {"hashes": hs, "epochs": epochs, "criterion": f"candidate recall@{CRITERION_K} >= 95% on TEST",
                     "counts": {"TRAIN": len(TRAIN), **{k: len(v) for k, v in EVAL_SETS.items()},
                                "DIALOGOS_turnos": sum(len(d[2]) for d in DIALOGS)}}
-    report["leakage"] = leakage(TRAIN, EVAL_SETS)
+    dev_only = "--dev" in sys.argv
+    report["leakage"] = leakage(TRAIN, {"DEV": DEV} if dev_only else EVAL_SETS)
     print(json.dumps({"hashes": hs, "leakage": {k: v["counts"] for k, v in report["leakage"].items()}}), flush=True)
     sb = Sandbox()
     try:
-        report["gold_errors"] = sum((check_gold(sb, items, n) for n, items in (("TRAIN", TRAIN),
-                                                                               *EVAL_SETS.items())), [])
+        report.update(preflight(sb, dev_only))
         print(json.dumps({"gold_errors": report["gold_errors"]}, ensure_ascii=False), flush=True)
-        report["holdout_new_combinations"] = holdout_check(sb)
         r = Ranker()
         report["train"] = train(r, TRAIN, epochs, sb)
         print(json.dumps({"train": report["train"], "secs": round(time.time() - t0)}), flush=True)
-        if "--dev" in sys.argv:
+        if dev_only:
             # development: DEV only, with every failure listed (TEST and the other sets are not touched)
             rows = [score_item(r, it, sb) for it in DEV]
+            # Local diagnostic artifacts; neither is loaded by training or by the gate.
+            import pickle
+            cache = ROOT / "data" / "cache"
+            (cache / "a1_dev_model.pkl").write_bytes(pickle.dumps(r))
+            (cache / "a1_dev_rows.json").write_text(
+                json.dumps({"table": table(rows), "rows": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
             print("DEV", json.dumps(table(rows)["ALL"]), flush=True)
             for x in rows:
                 if not x["ir"]:
