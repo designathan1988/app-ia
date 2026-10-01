@@ -565,15 +565,19 @@ KINDS = {"tipo", "propriedade", "atributo", "estado", "breakpoint"}
 
 def _unexplained(pieces: list[Piece], used: set, partial: dict) -> float:
     """Each word no part of the reading explains costs; a word that names something the builder knows (a state, a
-    property, a type) costs more, because leaving it out would silently drop part of what was asked."""
+    property, a type, a value such as "vermelho") costs more, because leaving it out would silently drop part of
+    what was asked."""
     cost = 0.0
     for k, p in enumerate(pieces):
         lem = p.lemmas
-        rest = lem[partial.get(k, len(lem)):] if k in used else lem
+        start = partial.get(k, len(lem)) if k in used else 0
+        rest = lem[start:]
+        common = [not (t.i > 1 and t.form[:1].isupper()) for t in p.words
+                  if not is_literal(t.form) and t.form.lower() not in lexicon.STOP][start:]
         if k not in used and not lem and p.words:
             cost += COST["palavra_sem_explicacao"]
         for i in range(len(rest)):
-            named = bool(lexicon.match(tuple(rest), KINDS, i))
+            named = bool(lexicon.match(tuple(rest), KINDS, i)) or                 (i < len(common) and common[i] and rest[i] in value_index())
             cost += COST["palavra_com_significado_ignorada"] if named else COST["palavra_sem_explicacao"]
     return cost
 
@@ -620,13 +624,17 @@ def _common_lemmas(piece: Piece) -> tuple:
 
 
 def _prior(prop: str, node_type: str | None) -> float:
-    """How unlikely a property is as the meaning for this element: the builder shows essential properties first,
-    and a property that does not apply to the element's content (a text property on a section) is unlikely."""
+    """How unlikely a property is as the meaning for this element: the builder shows essential properties first;
+    a property that does not apply to the element's content (a text property on a section) is unlikely; and on a
+    text element, a property of any element is less specific than one of text ("o título branco": the text's
+    color, not the background)."""
     props, contents = _property_facts()
     applies, essential = props.get(prop, ("always", False))
     cost = 0.0 if essential else 1.0
     if applies == "text" and contents.get(node_type) != "text":
         cost += 3.0
+    elif applies == "always" and contents.get(node_type) == "text":
+        cost += 1.0
     elif applies not in ("always", "text"):
         cost += 0.5
     return cost
@@ -1057,9 +1065,14 @@ def _why_nothing(tokens: list[Token], world: World) -> str:
             if (t.upos == "PROPN" or t.form[:1].isupper()) and t.form.lower() not in known and \
                     not lexicon.match((lexicon.lemma_of(t.form),), KINDS):
                 return f"nenhum elemento se chama «{t.form}»"
+    # a value phrase: a literal, or a "para/como/em ..." phrase that is not an element ("no botão" names a place)
     has_value = any(is_literal(t.form) for p in pieces for t in p.words) or any(
-        p.case[-1:] and p.case[-1] in FRAMES["valor_casos"] and p.words for p in pieces)
-    names_prop = any(lexicon.match(p.lemmas, {"propriedade", "atributo"}) for p in pieces)
+        p.case[-1:] and p.case[-1] in FRAMES["valor_casos"] and p.words and not _reference(p, world)[0]
+        for p in pieces)
+    # a word of some property's label ("borda" in "Largura da borda superior") also says a property was meant
+    label_words = {x for e in lexicon.load() if e.kind == "propriedade" for x in e.lemmas if x != "de"}
+    names_prop = any(lexicon.match(p.lemmas, {"propriedade", "atributo"}) or set(p.lemmas) & label_words
+                     for p in pieces if not _reference(p, world)[0])
     if names_prop and not has_value:
         return "falta o valor (por exemplo: «... como 24px»)"
     if not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
@@ -1076,7 +1089,8 @@ def _definition(tokens: list[Token], text: str, world: World, by: str) -> Unders
     x = " ".join(t.form for t in tokens[:k]).strip().lower()
     y = " ".join(t.form for t in tokens[k + 1:]).strip().strip(".")
     first = tokens[0].form.lower()
-    if k == 1 and first in [lem for lem, tags in _analyses(first) if tags.startswith("V+INF")]:
+    invented_infinitive = not _analyses(first) and first[-2:] in ("ar", "er", "ir") and len(first) > 3
+    if k == 1 and (invented_infinitive or first in [lem for lem, tags in _analyses(first) if tags.startswith("V+INF")]):
         probe = World(world.nodes, world.selection[:1] or list(world.nodes)[:1], world.layer)
         rs = _readings(analyse(y), probe)
         if not rs or rs[0].unknown_verb or rs[0].cost > LIMIT:
@@ -1181,6 +1195,21 @@ def split_clauses(text: str) -> list[str]:
     return [" ".join(p).replace(" ,", ",").strip(" ,;") for p in parts]
 
 
+def _regular_infinitives(form: str) -> list[str]:
+    """Infinitives a verb form unknown to MorphoBr can have by the regular conjugation ("blorfe" -> "blorfar"):
+    a word the user invented and taught is used in any of its forms."""
+    w = form.lower()
+    if _analyses(w):
+        return []
+    out = []
+    for ending, infs in (("em", ("ar",)), ("es", ("ar",)), ("e", ("ar",)), ("am", ("er", "ir")), ("as", ("er", "ir")),
+                         ("a", ("er", "ir")), ("ou", ("ar",)), ("ei", ("ar",))):
+        if w.endswith(ending) and len(w) > len(ending) + 2:
+            out += [w[:-len(ending)] + i for i in infs]
+            break
+    return out
+
+
 def gapped_clauses(text: str) -> list[str] | None:
     """Coordination without a second verb (gapping): "insira um título e um parágrafo", "deixe a seção com fundo preto
     e o título branco" are two requests sharing the first verb. Returns the clauses with the verb repeated, or None
@@ -1216,7 +1245,13 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
     if taught is not None:
         return taught
     pred = _predicate(tokens)
-    definition = learned.verbs().get(pred.lemma) if pred is not None else None
+    definition = None
+    if pred is not None:
+        taught = learned.verbs()
+        for cand in [pred.lemma] + _regular_infinitives(pred.form):
+            if cand in taught:
+                definition, pred.lemma = taught[cand], cand
+                break
     if definition and not any(pred.lemma in f["verbos"] for f in FRAMES["quadros"]):
         # a taught verb: its definition, applied to what this sentence says after the verb
         rest = " ".join(t.form for t in tokens if t.i > pred.i and t.upos != "PUNCT")
@@ -1228,15 +1263,30 @@ def understand(text: str, world: World, by: str = "usuario") -> Understanding:
         return u
     readings = _readings(tokens, world)
     if not readings or readings[0].cost > LIMIT:
-        why = ("; ".join(readings[0].assumptions) if readings else "") or _why_nothing(tokens, world)
+        if readings and readings[0].unknown_verb:
+            why = f"não conheço o verbo «{readings[0].verb}»"  # not "the verb is outside frame X": that is internal
+        else:
+            why = ("; ".join(readings[0].assumptions) if readings else "") or _why_nothing(tokens, world)
         return Understanding(text, tokens, readings, "nao_entendi", f"Não entendi: {why}.")
     best = readings[0]
     if best.unknown_verb:
         # the action itself was not understood: never executed, and no guess offered as if it were an answer
         verb = best.assumptions[0].split("'")[1]
+        # the rest of the sentence may still be fully explained: say what it would mean, as a question, not an act
+        # (only when the rest of the sentence says a value that singles out one meaning: "pinte o título de
+        # vermelho"; "blorfe o botão" says nothing but the element, and any action would be a guess)
+        second = next((r for r in readings[1:] if r.constraints != best.constraints), None)
+        single = (second is None or second.cost - best.cost >= 1.0) and             all(c["kind"] in ("style", "field") for c in best.constraints)
+        if single and best.cost - COST["verbo_fora_do_quadro"] <= 1.0:
+            # abduction: everything but the verb is explained, and it explains one change only ("pinte o título de
+            # vermelho"): that change is the likeliest meaning. It is carried out and said, and an undo teaches
+            # (preferences) that it was not this.
+            return Understanding(text, tokens, readings, "executar",
+                                 f"{best.paraphrase} (não conheço «{verb}»; entendi pelo resto da frase)")
+        infinitive = (_regular_infinitives(verb) or [verb])[0]
         return Understanding(text, tokens, readings, "perguntar",
-                             f"Não conheço o verbo «{verb}». O que ele deve fazer? "
-                             f"(ensine com «{verb} significa ...» seguido de um pedido que eu já entendo)")
+                             f"Não conheço o verbo «{infinitive}». O que ele deve fazer? "
+                             f"(ensine com «{infinitive} significa ...» seguido de um pedido que eu já entendo)")
     if best.ambiguous:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in best.ambiguous[:6])
         return Understanding(text, tokens, readings, "perguntar", f"Qual deles: {names}?")

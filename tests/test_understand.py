@@ -182,3 +182,12 @@ def test_gapping_repeats_the_verb():
     first, second = gapped_clauses("insira um título e um parágrafo na seção Hero")
     assert first == "insira um título" and second.startswith("insira um parágrafo")
     assert gapped_clauses('por favor, mude o texto do título Title para "A e B"') is None  # "e" inside quotes
+
+
+def test_unknown_verb_with_one_meaning_left_is_carried_out():
+    """Abduction: "pintar" is unknown, but the rest of the sentence explains one change only."""
+    u = understand("pinte o título Title de vermelho", World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", u.message
+    assert {k: u.best.constraints[0][k] for k in ("property", "value")} == {"property": "color", "value": "red"}
+    assert understand("blorfe o parágrafo Intro", World.from_document(load_fixture("aurora"), [])).decision != \
+        "executar"  # nothing but the element: any action would be a guess

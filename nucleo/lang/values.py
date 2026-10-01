@@ -112,6 +112,37 @@ def _pt_translations(wikitext: str) -> list[str]:
     return [w.strip() for w in re.findall(r"\{\{tt?\+?\|pt\|([^|}]+)", english)]
 
 
+def _translate_many(fetcher, words: list[str]) -> dict[str, list[str]]:
+    """Portuguese translations for many English entries at once: the MediaWiki API returns the wikitext of up to 50
+    pages per request (seconds instead of one request per word). Entries whose translations live on a subpage are
+    then fetched one by one."""
+    import json as _json
+    from urllib.parse import quote
+
+    out: dict[str, list[str]] = {}
+    words = list(dict.fromkeys(words))
+    for i in range(0, len(words), 50):
+        chunk = words[i:i + 50]
+        url = ("https://en.wiktionary.org/w/api.php?action=query&format=json&formatversion=2&prop=revisions"
+               "&rvprop=content&rvslots=main&titles=" + quote("|".join(chunk)))
+        r = fetcher.get(url)
+        if r.status != 200:
+            continue
+        for page in _json.loads(r.text()).get("query", {}).get("pages", []):
+            revs = page.get("revisions") or []
+            if not revs:
+                continue
+            text = revs[0]["slots"]["main"]["content"]
+            title = page["title"].replace(" ", "_")
+            found = _pt_translations(text)
+            if "translation subpage" in text:
+                found += _translate(fetcher, title)
+            found = [w for w in dict.fromkeys(found) if re.fullmatch(r"[a-zà-ÿ]+", w)]
+            if found:
+                out[title] = found
+    return out
+
+
 def _translate(fetcher, word: str) -> list[str]:
     url = f"https://en.wiktionary.org/w/index.php?title={word}&action=raw"
     r = fetcher.get(url)
@@ -190,15 +221,26 @@ def build(fetcher, root: str | None = None) -> dict:
     keywords = set()
     for prop in _builder_properties():
         keywords |= _keywords(prop)
-    keywords = {k for k in keywords - GLOBAL if "-" not in k} | named_colors()
+    keywords = (keywords - GLOBAL) | named_colors()
     from .command_verbs import english_verbs
 
     keywords |= english_verbs(root)  # the verbs of the builder's English command labels ("hide", "duplicate")
     translations = {"_fonte": "https://en.wiktionary.org (traduções para o português)"}
-    for k in sorted(keywords):
-        found = _translate(fetcher, k)
-        if found:
-            translations[k] = found
+    found = _translate_many(fetcher, sorted(keywords))
+    # a compound keyword is often an English phrase written together or hyphenated ("uppercase" = "upper case",
+    # "line-through" = "line through"): its dictionary entry is the spaced phrase
+    missing = [k for k in keywords if k not in found]
+    candidates: dict[str, str] = {}
+    for k in missing:
+        if "-" in k:
+            candidates[k.replace("-", "_")] = k
+        elif len(k) >= 7:
+            for i in range(3, len(k) - 2):
+                candidates[k[:i] + "_" + k[i:]] = k
+    for phrase, words in _translate_many(fetcher, sorted(candidates)).items():
+        found.setdefault(candidates[phrase], words)
+    for k in sorted(found):
+        translations[k] = found[k]
     TRANSLATIONS.write_text(json.dumps(translations, ensure_ascii=False, indent=1), encoding="utf-8")
     for f in (index, color_names):
         f.cache_clear()

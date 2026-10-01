@@ -77,3 +77,9 @@ def test_undone_readings_become_costlier(tmp_path, monkeypatch):
     preferences.undone("colocar", "mover")
     p = preferences.penalty("colocar", "mover")
     assert 0.9 < p <= preferences.PENALTY and preferences.penalty("colocar", "existir") == 0.0
+
+
+def test_an_invented_verb_is_taught_and_used_conjugated(world):
+    assert understand("blorfar significa definir o alinhamento do texto como center", world).decision == "aprendido"
+    u = understand("blorfe o título Title", world)
+    assert u.decision == "executar" and u.best.constraints[0]["value"] == "center"
