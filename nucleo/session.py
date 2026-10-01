@@ -56,6 +56,9 @@ class Session:
             self.history.append(reply)
             return reply
         clauses = split_clauses(text)
+        if len(clauses) == 1 and clauses[0] != text.strip():
+            text_alone = clauses[0]  # courtesy left out
+            return self._ask_one(text_alone)
         if len(clauses) <= 1:
             gapped = gapped_clauses(text)
             if not gapped or self._understood(text):

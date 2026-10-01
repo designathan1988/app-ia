@@ -265,6 +265,41 @@ FOURTH = [
 ]
 
 
+# fifth round, written after the fourth round's fixes and run once before any change
+FIFTH = [
+    ("da pra deixar o título azul?", S("color", "blue", "t")),
+    ("me faz um favor, centraliza o parágrafo", S("text-align", "center", "p")),
+    ("o título tá muito pequeno, coloca 36px", S("font-size", "36px", "t")),
+    ("muda a cor das letras do botão para amarelo", S("color", "yellow", "b")),
+    ("arruma o alinhamento do título pra esquerda", S("text-align", "left", "t")),
+    ("deixa o fundo do parágrafo cinza claro", "perguntar"),
+    ("bota negrito no parágrafo", S("font-weight", "bold", "p")),
+    ("coloca itálico no título", S("font-style", "italic", "t")),
+    ("deleta o título", {"kind": "removed", "id": "t"}),
+    ("some com a imagem", "perguntar"),
+    ("cria mais um parágrafo no final", {"kind": "added", "type": "paragraph"}),
+    ("adiciona uma imagem na seção", {"kind": "added", "type": "image", "parent": "s"}),
+    ("faz uma cópia da imagem", C("element.duplicate", "i")),
+    ("oculta o título", C("element.toggleHidden", "t")),
+    ("trava a imagem", C("element.toggleLock", "i")),
+    ('o texto do botão vai ser "Comprar agora"', {"kind": "field", "field": "text", "value": "Comprar agora"}),
+    ("chama a imagem de Banner", {"kind": "field", "field": "name", "value": "Banner"}),
+    ("coloca o parágrafo antes do título", {"kind": "moved", "id": "p"}),
+    ("could you please make the paragraph centered?", S("text-align", "center", "p")),
+    ("i'd like the title in bold", S("font-weight", "bold", "t")),
+    ("change the button's color to green", S("color", "green", "b")),
+    ("give the title a font size of 30px", S("font-size", "30px", "t")),
+    ("get rid of the paragraph", {"kind": "removed", "id": "p"}),
+    ("make a duplicate of the image", C("element.duplicate", "i")),
+    ("lock the image", C("element.toggleLock", "i")),
+    ("add another paragraph at the end of the section", {"kind": "added", "type": "paragraph", "parent": "s"}),
+    ('the button should say "Buy now"', {"kind": "field", "field": "text", "value": "Buy now"}),
+    ("put the paragraph above the title", {"kind": "moved", "id": "p"}),
+    ("align the image to the right", S("text-align", "right", "i")),
+    ("hmm make it nicer", "perguntar"),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -310,3 +345,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run(True, FOURTH)
     print("quarta rodada:", c, f"de {len(FOURTH)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run(True, FIFTH)
+    print("quinta rodada:", c, f"de {len(FIFTH)} em {time.time() - t:.1f}s")

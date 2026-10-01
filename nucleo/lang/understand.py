@@ -464,6 +464,11 @@ def _names_in(piece: Piece, world: World) -> list[str]:
 def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], float, list[str], int]:
     """Candidate nodes a piece refers to, with the cost of the assumption, notes, and how many lemmas it explained."""
     seq = piece.lemmas[skip:]
+    new_words = langs.profile()["new"]
+    if any(fold(t.form.lower()) in new_words for t in piece.words[skip:]) or \
+            (piece.det and fold(piece.det) in new_words):
+        # something said to be new ("mais um parágrafo", "another button") has no referent on the page
+        return [], COST["referente_nao_resolvido"], ["algo novo não tem referente"], 0
     names = _names_in(piece, world)
     if not names:
         # a proper name (or quoted name) that names no node: the referent does not exist, whatever its type says
@@ -794,6 +799,14 @@ def _readings(tokens: list[Token], world: World) -> list[Reading]:
 
 def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Reading]:
     pieces = _pieces(tokens, pred)
+    write = next((f for f in FRAMES["quadros"] if f["id"] == "escrever"), None)
+    if write is not None and _in_frame(pred.lemma, write):
+        subj = [t for t in tokens if t.head == pred.i and t.deprel == "nsubj" and t.upos in ("NOUN", "PROPN")]
+        if subj:
+            # "o botão diz X", "the button should say X": what says it is where the text goes
+            words = [t for t in tokens if t.i < pred.i and t.upos in ("NOUN", "PROPN", "ADJ")]
+            ids = {t.i for t in words}
+            pieces = [q for q in pieces if not ({t.i for t in q.words} & ids)] +                 [Piece((FRAMES["locais"]["dentro"][0].split()[0],), words)]
     if pred.lemma in COPULAS or pred.lemma in MODALS:
         # "o título tem que ficar vermelho", "quero o título sublinhado": the request is a state of an element;
         # the subject before the verb is the element
@@ -802,6 +815,15 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
         subject = [Piece((), before)] if before else []
         value_frame = next(f for f in FRAMES["quadros"] if f.get("valor_rotulado"))
         rs = _value_readings(value_frame, subject + pieces, world)
+        # "o texto do botão vai ser 'X'": a field of an element is the subject, the value is said after the copula
+        field_frames = [f for f in FRAMES["quadros"] if f["objeto"].startswith("campo:")]
+        if subject:
+            # the words before the copula read as if after it: "o texto do botão vai ser X" ~ "ser o texto do botão X"
+            # (unless the parser already left them among the arguments: a copula over a noun root)
+            have = {t.i for q in pieces for t in q.words}
+            subj_pieces = [] if {t.i for t in before} & have else                 _pieces([pred] + [t for t in tokens if t.i < pred.i and t.upos != "AUX"], pred)
+            for f in field_frames:
+                rs += _frame_readings(f, subj_pieces + pieces, world)
         for r in rs:
             r.verb = pred.lemma
         return rs + _light_verb_readings(pred, pieces, world)
@@ -823,6 +845,10 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     for r in _comparative_readings(tokens, pred, pieces, world):
         r.verb = pred.lemma
         out.append(r)
+    if any(f["id"] in ("existir", "estilo_por_valor") for f in frames):
+        for r in _value_object_readings(pieces, world):
+            r.verb = pred.lemma
+            out.append(r)
     if any(f["id"] in ("estilo", "estilo_por_valor") for f in frames) or base_cost:
         for r in _measure_readings(tokens, pieces, world):
             r.verb = pred.lemma
@@ -855,13 +881,25 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     # is caused motion ("joga o botão pro começo da seção"); verb + new element + place is putting it there
     # ("joga um botão no fim"). For verbs whose own frames are not these; they compete with the other readings.
     for f in FRAMES["quadros"]:
-        if f["id"] not in ("mover", "existir") or f in frames and not base_cost:
+        if f["id"] not in ("mover", "existir", "estilo") or f in frames and not base_cost:
             continue
-        for r in _frame_readings(f, pieces, world):
+        found = _frame_readings(f, pieces, world) + (_family_readings(pieces, world) if f["id"] == "estilo" else [])
+        for r in found:
+            if f["id"] == "estilo":
+                # verb + property + element + value ("arruma o alinhamento do título pra esquerda"): setting it
+                if not r.constraints or any(c.get("kind") != "style" for c in r.constraints):
+                    continue
+                r.verb = pred.lemma
+                r.cost += COST["construcao"]
+                r.assumptions.insert(0, "construção: verbo + propriedade + valor (estilo)")
+                out.append(r)
+                continue
             placed = any(c.get("parent") for c in r.constraints)
             if not placed or (f["id"] == "existir" and any(c.get("parent") is None for c in r.constraints)):
                 continue
-            if f["id"] == "existir" and "artigo definido para algo novo" in r.assumptions:
+            if f["id"] == "existir" and not any(q.det and q.det in INDEFINITE or
+                                                any(fold(t.form.lower()) in langs.profile()["new"] for t in q.words)
+                                                for q in pieces if not q.case):
                 continue  # putting something new needs it said as new ("um botão", "another button")
             r.verb = pred.lemma
             r.cost += COST["construcao"]
@@ -1005,6 +1043,33 @@ def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
             cost = c + _prior(prop, world.nodes[node]["type"]) + _unexplained(pieces, {k, j}, {k: len(p.lemmas),
                                                                                                 j: ex})
             out.append(Reading("remover", cons, cost, list(notes), paraphrase(cons, world)))
+            break
+    return out
+
+
+def _value_object_readings(pieces: list[Piece], world: World) -> list[Reading]:
+    """ "bota negrito no parágrafo", "coloca itálico no título", "put bold on the title": the value is the object and
+    the element is where it goes."""
+    out = []
+    for k, p in enumerate(pieces):
+        if p.case or not p.words or _reference(p, world)[0]:
+            continue
+        for j, q in enumerate(pieces):
+            if j == k or not q.case:
+                continue
+            kind, skip = _place(q.case, q)
+            if kind != "dentro":
+                continue
+            ref, c, notes, ex = _reference(q, world, skip)
+            if len(ref) != 1:
+                continue
+            node = ref[0]
+            for prop, value, vc in _value_candidates(p, world.nodes[node]["type"]):
+                used, explained = {k, j}, {k: _value_words(p, prop, value), j: skip + ex}
+                cons = [{"kind": "style", "id": node, "breakpoint": world.layer[0], "state": world.layer[1],
+                         "property": prop, "value": value}]
+                cost = c + vc + _unexplained(pieces, used, explained)
+                out.append(Reading("estilo_por_valor", cons, cost, list(notes), paraphrase(cons, world)))
             break
     return out
 
@@ -1425,6 +1490,22 @@ def _naming_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading
         cons = [{"kind": "field", "id": ref[0], "field": "name", "value": literal_value(last.form)}]
         cost = c + 0.5 + _unexplained(pieces, {k}, {k: len(p.lemmas)})
         out.append(Reading(f["id"], cons, cost, list(notes), paraphrase(cons, world)))
+    # "chama a imagem de Banner": the new name after "de", a name no element has
+    for k, p in enumerate(pieces):
+        if p.case or k + 1 >= len(pieces) or pieces[k + 1].case != _OF():
+            continue
+        q = pieces[k + 1]
+        if not q.words or not all(t.form[:1].isupper() or is_literal(t.form) for t in q.words):
+            continue
+        if _names_in(q, world):
+            continue  # an element's name: "o título da seção Hero" is possession, not naming
+        ref, c, notes, ex = _reference(p, world)
+        if len(ref) != 1:
+            continue
+        value = " ".join(literal_value(t.form) for t in q.words)
+        cons = [{"kind": "field", "id": ref[0], "field": "name", "value": value}]
+        cost = c + 0.5 + _unexplained(pieces, {k, k + 1}, {k: len(p.lemmas), k + 1: len(q.lemmas)})
+        out.append(Reading(f["id"], cons, cost, list(notes), paraphrase(cons, world)))
     return out
 
 
@@ -1448,9 +1529,12 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
         constraints = []
         if obj_kind == "literal":
             # "escreva Olá no parágrafo": the object is the text itself, the element is where it goes
+            # ("the button should say X": the subject is the element, see _readings_for)
             if p.case or not p.words:
                 continue
             literal = next((literal_value(t.form) for t in p.words if is_literal(t.form)), None)
+            if literal is None and (any(is_literal(t.form) for q in pieces for t in q.words) or _reference(p, world)[0]):
+                continue  # the text is the quoted one; a phrase that names an element is not the text
             value = literal if literal is not None else " ".join(t.form for t in p.words)
             explained[k] = len(p.lemmas)
             target = None
@@ -1527,6 +1611,21 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                 place_found = True
                 parent, index = _placement(kind, node, world)
                 break
+            if not place_found:
+                # "no final", "at the end" with no "of what": the page's
+                for j, q in enumerate(pieces):
+                    if j == k or not q.case:
+                        continue
+                    kind, skip = _place(q.case, q)
+                    if kind in ("inicio", "fim") and len(q.lemmas) <= skip:
+                        root = next((n for n, v in world.nodes.items() if v["parent"] is None), None)
+                        if root is not None:
+                            parent, index = _placement(kind, root, world)
+                            used.add(j)
+                            explained[j] = len(q.lemmas)
+                            place_found = True
+                            notes.append("no fim/início da página")
+                            break
             if not place_found:
                 said = any(q.case and _place(q.case, q)[0] is not None for j, q in enumerate(pieces) if j != k)
                 if said:
@@ -2012,27 +2111,49 @@ LINKS = {"depois", "também", "em", "seguida", "então", "logo", "ainda"}
 
 
 def split_clauses(text: str) -> list[str]:
-    """A compound request ("insira X e depois apague Y") as its clauses, in order. A clause starts at "e" (or ";")
-    when, after optional linking words ("depois", "também", "em seguida"), a word that can be a request verb comes."""
-    words = tokenize(text)
-    parts, current = [], []
-    k = 0
-    while k < len(words):
-        w = words[k]
-        if w.lower() in ("e", ";") and current:
-            j = k + 1
-            while j < len(words) and words[j].lower() in LINKS:
-                j += 1
-            if j < len(words) and _frame_verb(words[j]):
-                parts.append(current)
-                current = []
-                k = j
-                continue
-        current.append(w)
-        k += 1
-    if current:
-        parts.append(current)
-    return [" ".join(p).replace(" ,", ",").strip(" ,;") for p in parts]
+    """A compound request ("insira X e depois apague Y", "me faz um favor, centraliza o parágrafo") as its clauses, in
+    order. A clause starts at "e"/"and", ";" or a comma when, after optional linking words ("depois", "then"), a
+    word that can be a request verb comes. A clause that names nothing of the page (courtesy: "me faz um favor",
+    "please") is talk, not a request, and is left out."""
+    with langs.use(langs.detect(text)):
+        words = tokenize(text)
+        links = LINKS | {"then", "also", "after", "that"}
+        parts, current = [], []
+        k = 0
+        while k < len(words):
+            w = words[k]
+            if w.lower() in ("e", ";", "and", ",") and current:
+                j = k + 1
+                while j < len(words) and words[j].lower() in links:
+                    j += 1
+                if j < len(words) and (_frame_verb(words[j]) or _graph_verb(words[j])):
+                    parts.append(current)
+                    current = []
+                    k = j
+                    continue
+            current.append(w)
+            k += 1
+        if current:
+            parts.append(current)
+        clauses = [re.sub(r" (['’]\w)", r"", " ".join(p).replace(" ,", ",")).strip(" ,;") for p in parts]
+        if len(clauses) == 1:
+            return [text.strip()]  # one clause: the text as written
+        if len(clauses) > 1:
+            kept = [c for c in clauses if _names_something(c)]
+            clauses = kept or clauses
+        return clauses
+
+
+def _names_something(clause: str) -> bool:
+    """Whether a clause mentions anything of the page or of the builder: a type, a property, a value, a name of an
+    element, a literal. Courtesy ("me faz um favor") mentions nothing."""
+    for w in tokenize(clause):
+        if is_literal(w) or w[:1].isupper() and len(w) > 1:
+            return True
+        lem = lexicon.lemma_of(w)
+        if lexicon.match((lem,), KINDS) or lem in value_index():
+            return True
+    return False
 
 
 def _replace_node(constraints: list, old: str, new: str) -> list:
@@ -2096,12 +2217,39 @@ def _politeness_words(words: list[str], k: int) -> bool:
 def understand(text: str, world: World, by: str = "usuario", lang: str | None = None) -> Understanding:
     """The request's language is detected (or given), and the whole pipeline runs in it."""
     with langs.use(lang or langs.detect(text)):
-        u = _understand(text, world, by)
+        clauses = split_clauses(text)
+        # courtesy around a single request ("me faz um favor, centraliza o parágrafo"): the request alone
+        u = _understand(clauses[0] if len(clauses) == 1 and clauses[0] != text.strip() else text, world, by)
+        u.text = text
     u.lang = lang or langs.detect(text)
     return u
 
 
+def _possessive(text: str) -> str:
+    """English "change the Intro paragraph's color to green" read as "change the color of the Intro paragraph to
+    green": the possessor runs back to its article, the possessed noun phrase runs to the next preposition."""
+    if langs.current() != "en":
+        return text
+    words = text.split()
+    k = next((i for i, w in enumerate(words) if re.fullmatch(r"[\w-]+['’]s", w)), None)
+    if k is None:
+        return text
+    start = k
+    while start > 0 and words[start - 1].lower() not in ("the", "a", "an") and start > k - 3:
+        start -= 1
+    det = start - 1 if start > 0 and words[start - 1].lower() in ("the", "a", "an") else start
+    possessor = words[start:k] + [re.sub(r"['’]s$", "", words[k])]
+    stop = _case_words() | {"to", "as", "in", "into", "with", "and"}
+    end = next((i for i in range(k + 1, len(words)) if words[i].lower() in stop), len(words))
+    if end == k + 1:
+        return text
+    possessed = words[k + 1:end]
+    out = words[:det] + ["the"] + possessed + ["of", "the"] + possessor + words[end:]
+    return " ".join(out)
+
+
 def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
+    text = _possessive(text)
     tokens = analyse(text)
     taught = _definition(tokens, text, world, by)
     if taught is not None:

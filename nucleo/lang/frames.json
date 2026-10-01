@@ -13,7 +13,7 @@
     {"id": "texto", "resultado": "field:text", "objeto": "campo:texto", "valor": true, "valor_casos": ["para", "como", "por"],
      "verbos": ["escrever", "mudar", "alterar", "trocar", "definir", "colocar", "pôr", "deixar"]},
     {"id": "escrever", "resultado": "field:text", "objeto": "literal", "valor": true,
-     "verbos": ["escrever", "digitar", "redigir"]},
+     "verbos": ["escrever", "digitar", "redigir", "dizer"]},
     {"id": "nome", "resultado": "field:name", "objeto": "campo:nome", "valor": true, "valor_casos": ["para", "como", "por"],
      "verbos": ["mudar", "alterar", "trocar", "definir", "colocar", "pôr"]},
     {"id": "renomear", "resultado": "field:name", "objeto": "no", "valor": true, "valor_casos": ["para", "como", "por"],
@@ -30,8 +30,9 @@
                "em baixo de", "para baixo de", "logo depois de", "logo abaixo de"],
     "antes": ["antes de", "acima de", "para antes de", "em cima de", "para cima de", "logo antes de", "logo acima de"],
     "inicio": ["no início de", "no começo de", "em o início de", "em o começo de", "para o início de", "para o começo de",
-               "em o topo de", "para o topo de", "a o topo de"],
-    "fim": ["no fim de", "no final de", "em o fim de", "em o final de", "para o fim de", "para o final de"]
+               "em o topo de", "para o topo de", "a o topo de", "em o início", "em o começo", "em o topo"],
+    "fim": ["no fim de", "no final de", "em o fim de", "em o final de", "para o fim de", "para o final de",
+            "em o final", "em o fim", "para o final", "para o fim"]
   },
   "valor_casos": ["para", "como", "em", "com", "de", "por"],
   "campos": {"texto": "text", "conteúdo": "text", "nome": "name"}

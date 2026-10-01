@@ -257,3 +257,21 @@ def test_fourth_round_mechanisms(text, expected):
     assert u.decision == "executar", (text, u.message)
     c = u.best.constraints[0]
     assert {k: c.get(k) for k in expected} == expected, (text, c)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("me faz um favor, centraliza o parágrafo Intro", {"kind": "style", "property": "text-align", "value": "center"}),
+    ("bota negrito no parágrafo Intro", {"kind": "style", "property": "font-weight", "value": "bold"}),
+    ("arruma o alinhamento do parágrafo Intro pra esquerda", {"kind": "style", "property": "text-align",
+                                                             "value": "left"}),
+    ('o texto do parágrafo Intro vai ser "Olá"', {"kind": "field", "field": "text", "value": "Olá"}),
+    ("chama a seção Plans de Preços", {"kind": "field", "field": "name", "value": "Preços"}),
+    ("change the Intro paragraph's color to green", {"kind": "style", "property": "color", "value": "green"}),
+    ("i'd like the Intro paragraph in bold", {"kind": "style", "property": "font-weight", "value": "bold"}),
+    ('the Intro paragraph should say "Hi"', {"kind": "field", "field": "text", "value": "Hi"}),
+])
+def test_fifth_round_mechanisms(text, expected):
+    u = understand(text, World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar", (text, u.message)
+    c = u.best.constraints[0]
+    assert {k: c.get(k) for k in expected} == expected, (text, c)

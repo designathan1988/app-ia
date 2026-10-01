@@ -85,8 +85,16 @@ def direct(word: str) -> list[Meaning]:
     from . import langs
 
     head_at = -1 if langs.current() == "en" else 0  # the head of a label: "text colour" / "cor do texto"
+    from . import concepts
+
+    first = concepts.concepts_of(word, langs.current(), "n")[:1]
     for e in lexicon.load():  # the word heads property labels: "cor" (cor do texto, cor da borda...)
-        if e.kind == "propriedade" and len(e.lemmas) > 1 and e.lemmas[head_at] in (w, fold(lexicon.lemma_of(word))):
+        if e.kind != "propriedade" or len(e.lemmas) < 2:
+            continue
+        head = e.lemmas[head_at]
+        # the same word, or the same concept spelled otherwise ("color" / "colour")
+        if head in (w, fold(lexicon.lemma_of(word))) or \
+                first and concepts.concepts_of(head, langs.current(), "n")[:1] == first:
             from .values import _builder_properties
 
             vt = _builder_properties().get(e.id, {}).get("valueType")

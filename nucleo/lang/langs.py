@@ -25,8 +25,9 @@ PROFILES = {
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
         # degree: comparison words and the verbs of changing an amount (closed class)
-        "more": {"maior", "maiores", "mais", "aumentar", "ampliar", "crescer", "engrossar"},
+        "more": {"maior", "maiores", "aumentar", "ampliar", "crescer", "engrossar"},
         "less": {"menor", "menores", "menos", "diminuir", "reduzir", "encolher", "afinar"},
+        # ("mais um parágrafo" is a new paragraph, not a bigger one: "mais" alone is not a comparison here)
         "new": {"novo", "nova", "novos", "novas", "outro", "outra", "outros", "outras", "mais"},
         "informal": {"pro": ["para", "o"], "pra": ["para", "a"], "pros": ["para", "os"], "pras": ["para", "as"],
                      "num": ["em", "um"], "numa": ["em", "uma"], "nuns": ["em", "uns"], "numas": ["em", "umas"]},
@@ -62,15 +63,17 @@ PROFILES = {
         "definite": {"the", "this", "that", "these", "those"},
         "indefinite": {"a", "an", "some"},
         "pronouns": {"it", "this", "that", "selected", "selection"},
-        "modals": {"can", "could", "would", "will", "should", "want", "need", "please", "must", "have", "like"},
+        "modals": {"can", "could", "would", "will", "should", "want", "need", "please", "must", "have", "like",
+                   "'d", "'ll", "wanna", "gonna"},
         "copulas": {"be", "become", "get", "stay", "look"},
         # places and value markers, by the place kinds and cases of frames.json
         "locais": {"dentro": ["in", "into", "inside", "to"],
                    "depois": ["after", "below", "under", "underneath", "beneath", "right after", "right below"],
                    "antes": ["before", "above", "on top of", "right before", "right above"],
                    "inicio": ["at the beginning of", "at the start of", "to the beginning of", "to the start of",
-                              "at the top of", "to the top of"],
-                   "fim": ["at the end of", "to the end of", "at the bottom of", "to the bottom of"]},
+                              "at the top of", "to the top of", "at the top", "at the beginning"],
+                   "fim": ["at the end of", "to the end of", "at the bottom of", "to the bottom of", "at the end",
+                           "at the bottom"]},
         "valor_casos": ["to", "as", "in", "with", "of", "by", "into"],
         "campos": {"text": "text", "content": "text", "name": "name", "label": "text"},
     },
