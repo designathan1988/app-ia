@@ -195,6 +195,41 @@ ENGLISH_VALIDATION = [
 ]
 
 
+# third round, written after everything above and run once before any change
+FRESH = [
+    ("muda o alinhamento do parágrafo para a direita", S("text-align", "right", "p")),
+    ("faz o título ficar em negrito", S("font-weight", "bold", "t")),
+    ("eu quero o botão azul", S("color", "blue", "b")),
+    ("deixe o parágrafo com a fonte maior, tipo 22px", S("font-size", "22px", "p")),
+    ("tira o negrito do título", S("font-weight", "normal", "t")),
+    ("põe uma margem de 10px em cima do botão", S("margin-top", "10px", "b")),
+    ("muda o fundo da página inteira para cinza", S("background-color", "gray", "pg")),
+    ("apaga essa imagem", {"kind": "removed", "id": "i"}),
+    ("remove o botão Assinar", {"kind": "removed", "id": "b"}),
+    ("faz o parágrafo sumir", C("element.toggleHidden", "p")),
+    ("duplica o título", C("element.duplicate", "t")),
+    ("coloca outro botão embaixo do parágrafo", {"kind": "added", "type": "button", "parent": "s"}),
+    ("adiciona um título novo no topo da seção", {"kind": "added", "type": "heading", "parent": "s"}),
+    ('troca o texto do botão para "Saiba mais"', {"kind": "field", "field": "text", "value": "Saiba mais"}),
+    ("muda o nome da imagem para Capa", {"kind": "field", "field": "name", "value": "Capa"}),
+    ("joga o botão pro começo da seção", {"kind": "moved", "id": "b"}),
+    ("deixa todas as imagens escondidas", C("element.toggleHidden", "i")),
+    ("make the button text white", S("color", "white", "b")),
+    ("turn the title green", S("color", "green", "t")),
+    ("increase the title font size to 48px", S("font-size", "48px", "t")),
+    ("align everything in the section to the center", "perguntar"),
+    ("delete that image", {"kind": "removed", "id": "i"}),
+    ("throw away the button", {"kind": "removed", "id": "b"}),
+    ("clone the paragraph", C("element.duplicate", "p")),
+    ("put a new button at the end of the section", {"kind": "added", "type": "button", "parent": "s"}),
+    ("rename the image to Cover", {"kind": "field", "field": "name", "value": "Cover"}),
+    ("move the button to the top of the section", {"kind": "moved", "id": "b"}),
+    ("make the paragraph text italic", S("font-style", "italic", "p")),
+    ("can you hide the button please?", C("element.toggleHidden", "b")),
+    ("asdf the qwer", "perguntar"),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -234,3 +269,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run("-v" in sys.argv or "-en" in sys.argv, ENGLISH_VALIDATION)
     print("inglês, validação:", c, f"de {len(ENGLISH_VALIDATION)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run(True, FRESH)
+    print("terceira rodada:", c, f"de {len(FRESH)} em {time.time() - t:.1f}s")

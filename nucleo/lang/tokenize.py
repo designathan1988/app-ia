@@ -39,6 +39,10 @@ def _contractions(lang: str) -> dict[str, tuple[str, ...]]:
         # an English contraction is written with an apostrophe ("don't", "it's"); the treebank's other multiword
         # tokens are typos joined in the source text ("others" = "other s"), not contractions
         table = {k: v for k, v in table.items() if "'" in k or "’" in k}
+    from . import langs
+
+    for k, v in langs.profile(lang).get("informal", {}).items():  # spoken contractions the news treebanks lack
+        table.setdefault(k, tuple(v))
     return table
 
 

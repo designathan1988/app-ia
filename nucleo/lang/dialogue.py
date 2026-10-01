@@ -70,7 +70,8 @@ def options_from(u, world) -> Pending | None:
             r.target_name = world.nodes[n]["name"]
             opts.append(r)
         return Pending(u.text, opts)
-    rivals = [r for r in u.readings[1:] if r.cost - best.cost < 1.0 and r.constraints != best.constraints][:2]
+    rivals = [r for r in u.readings[1:] if r.cost - best.cost < 1.0 and r.constraints != best.constraints
+              and not (r.unknown_verb and not best.unknown_verb)][:2]
     return Pending(u.text, [best] + rivals)
 
 

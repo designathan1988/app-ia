@@ -26,9 +26,11 @@
   ],
   "locais": {
     "dentro": ["em", "dentro de", "para dentro de", "para", "a"],
-    "depois": ["depois de", "após", "abaixo de", "em seguida a", "para depois de"],
-    "antes": ["antes de", "acima de", "para antes de"],
-    "inicio": ["no início de", "no começo de", "em o início de", "em o começo de", "para o início de", "para o começo de"],
+    "depois": ["depois de", "após", "abaixo de", "em seguida a", "para depois de", "embaixo de", "debaixo de",
+               "em baixo de", "para baixo de", "logo depois de", "logo abaixo de"],
+    "antes": ["antes de", "acima de", "para antes de", "em cima de", "para cima de", "logo antes de", "logo acima de"],
+    "inicio": ["no início de", "no começo de", "em o início de", "em o começo de", "para o início de", "para o começo de",
+               "em o topo de", "para o topo de", "a o topo de"],
     "fim": ["no fim de", "no final de", "em o fim de", "em o final de", "para o fim de", "para o final de"]
   },
   "valor_casos": ["para", "como", "em", "com", "de", "por"],

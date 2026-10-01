@@ -137,3 +137,31 @@ O analisador inglês (UD English-EWT, mesmo modelo linear) dá UPOS 93,7% e LAS 
 - verbos compostos com nome ("left align");
 - duplo objeto ("call the section Intro");
 - causativos que a WordNet não liga ("sumir com" = remover).
+
+## Terceira rodada (frases novas, escritas depois de tudo e rodadas uma vez antes de qualquer mudança)
+
+| | Certo | Perguntou ou não entendeu | Errado |
+|---|---|---|---|
+| antes (medida limpa) | 17 de 30 | 12 | **1** |
+| depois dos mecanismos que ela revelou | 24 de 30 | 6 | 0 |
+
+**O erro da medida limpa:** "put a **new** button at the end" movia o botão existente. Agora a novidade explícita
+("novo", "outro", "new", "another") só admite inserção.
+
+**Mecanismos acrescentados, todos gerais:**
+- contrações faladas ("pro", "pra", "num");
+- preposições espaciais completas ("embaixo de", "em cima de", "no topo de", "at the top of");
+- retirar um valor ("tira o negrito do título" → peso normal);
+- composto nominal inglês ("the title font size");
+- quantificadores ("todos", "cada", "all", "every") e ordinais ("o último", "the first");
+- contenção ("o título do CardA", "the heading in CardB");
+- modificador antes do verbo ("right align", "left align");
+- duplo objeto ("call the section Pricing");
+- leituras de verbo desconhecido nunca rivalizam com uma leitura ancorada.
+
+**O que ainda não entende** (pergunta ou diz que não entendeu; nunca age):
+- "deixe o parágrafo com a fonte maior, tipo 22px";
+- "põe uma margem de 10px em cima do botão";
+- "faz o parágrafo sumir";
+- "joga o botão pro começo da seção";
+- "deixa todas as imagens escondidas".

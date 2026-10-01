@@ -803,6 +803,10 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     for r in extra:
         r.verb = pred.lemma
         out.append(r)
+    if any(f["id"] == "remover" for f in frames):
+        for r in _value_removal_readings(pieces, world):
+            r.verb = pred.lemma
+            out.append(r)
     if any(f["id"] == "estilo" for f in frames):
         for r in _family_readings(pieces, world):
             r.verb = pred.lemma
@@ -821,6 +825,12 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
             out.append(r)
     if not out or min(r.cost for r in out) > LIMIT or all(r.unknown_verb for r in out):
         out += _light_verb_readings(pred, pieces, world)
+        if not base_cost:
+            # a known verb whose frames do not fit the sentence ("joga o botão pro começo": jogar is listed for
+            # styles): its other meanings, through the concept graph
+            for r in _dictionary_readings(pred.lemma, pieces, world):
+                r.verb = pred.lemma
+                out.append(r)
     out.sort(key=lambda r: (r.cost, r.frame))
     return out
 
@@ -859,6 +869,35 @@ def _light_verb_readings(pred: Token, pieces: list[Piece], world: World) -> list
 
 
 KINDS = {"tipo", "propriedade", "atributo", "estado", "breakpoint"}
+
+
+def _value_removal_readings(pieces: list[Piece], world: World) -> list[Reading]:
+    """ "tira o negrito do título", "remove the bold from the title": a removal verb whose object names a value;
+    the element's property goes back to its normal value."""
+    out = []
+    for k, p in enumerate(pieces):
+        if p.case or not p.words:
+            continue
+        pairs = [pv for lem in _common_lemmas(p) for pv in value_index().get(lem, [])]
+        if not pairs:
+            continue
+        for j, q in enumerate(pieces):
+            if j == k or not q.case:
+                continue
+            ref, c, notes, ex = _reference(q, world)
+            if len(ref) != 1:
+                continue
+            node = ref[0]
+            best = min(pairs, key=lambda pv: _prior(pv[0], world.nodes[node]["type"]))
+            prop = best[0]
+            reset = "normal" if "normal" in values_mod._keywords(prop) else "initial"
+            cons = [{"kind": "style", "id": node, "breakpoint": world.layer[0], "state": world.layer[1],
+                     "property": prop, "value": reset}]
+            cost = c + _prior(prop, world.nodes[node]["type"]) + _unexplained(pieces, {k, j}, {k: len(p.lemmas),
+                                                                                                j: ex})
+            out.append(Reading("remover", cons, cost, list(notes), paraphrase(cons, world)))
+            break
+    return out
 
 
 def _family_readings(pieces: list[Piece], world: World) -> list[Reading]:
@@ -915,7 +954,8 @@ def _dictionary_readings(lemma: str, pieces: list[Piece], world: World, given=No
 
     out: list[Reading] = []
     value_frame = next(f for f in FRAMES["quadros"] if f.get("valor_rotulado"))
-    for m in (grounding.meanings(lemma, "V") if given is None else given):
+    meanings = list(grounding.meanings(lemma, "V") if given is None else given)
+    for m in meanings:
         rs: list[Reading] = []
         if m.kind == "comando":
             import dataclasses
@@ -943,6 +983,9 @@ def _dictionary_readings(lemma: str, pieces: list[Piece], world: World, given=No
                 prop = r.constraints[0].get("property")
                 if types.get(prop, {}).get("valueType") == family:
                     rs.append(r)
+        if m.kind == "valor" and any(o.kind in ("comando", "acao") and o.cost <= m.cost + 1.0 for o in meanings):
+            for r in rs:
+                r.cost += 1.0  # "throw away": the action is a likelier meaning of a verb than a keyword it matches
         for r in rs:
             r.cost += m.cost + COST["significado_pelo_dicionario"]
             r.assumptions.insert(0, m.explain(lemma))
@@ -1208,9 +1251,17 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
         elif obj_kind == "tipo":
             # a type's label may go on across a preposition ("bloco | de link")
             span = _span_match(pieces, k, {"tipo"})
-            if span is None and p.words:
-                from . import grounding
+            if span is None and len(p.lemmas) > 1:
+                # the type after adjectives ("a new button", "um outro botão"): found anywhere in the phrase
+                for i in range(1, len(p.lemmas)):
+                    hits = lexicon.match(p.lemmas, {"tipo"}, i)
+                    if hits and i + hits[0][1] == len(p.lemmas):
+                        span = (hits[0][0], len(p.lemmas), [])
+                        break
+            from . import grounding
 
+            if span is None and p.words and not lexicon.match(p.lemmas[:1], {"propriedade"}) and                     not any(m.kind in ("familia", "propriedade") for m in grounding.direct(p.words[0].form)):
+                # (a word that names properties, "margem", is never an element type)
                 hit = next((m for m in grounding.meanings(p.words[0].form, "N") if m.kind == "tipo" and m.cost <= 1.5),
                            None)
                 if hit is not None:
@@ -1220,7 +1271,9 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                 continue
             entity, length, whole = span
             typ = entity.id
-            explained[k] = length
+            # newness words ("novo", "outro", "new", "another") belong to the insertion
+            newness = sum(1 for t in p.words if fold(t.form.lower()) in langs.profile()["new"])
+            explained[k] = min(len(p.lemmas), length + newness)
             for j in whole:
                 used.add(j)
                 explained[j] = len(pieces[j].lemmas)
@@ -1263,6 +1316,9 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                     notes.append("sem local: onde o editor puser")
             constraints.append({"kind": "added", "type": typ, "parent": parent, "index": index, **extras})
         elif obj_kind in ("no",):
+            if any(fold(t.form.lower()) in langs.profile()["new"] for t in p.words) or \
+                    p.det and fold(p.det) in langs.profile()["new"]:
+                continue  # "um botão novo", "another button": an element that does not exist yet
             ref, c, n, ex = _reference(p, world)
             if not ref:
                 continue
@@ -1317,8 +1373,19 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                     constraints.append({"kind": "field", "id": node, "field": "name", "value": v[0]})
         else:  # propriedade | atributo | campo:<x>
             kinds = {"propriedade"} if obj_kind == "propriedade" else {"atributo"} if obj_kind == "atributo" else None
+            compound_owner = None
             if kinds:
                 span = _span_match(pieces, k, kinds)
+                if span is None and obj_kind == "propriedade" and len(p.lemmas) > 1:
+                    # "the title font size": the property's label after the element it belongs to
+                    for i in range(1, len(p.lemmas)):
+                        hits = lexicon.match(p.lemmas, kinds, i)
+                        if hits and i + hits[0][1] == len(p.lemmas):
+                            ref_o = _reference(Piece((), p.words[:i], p.det), world)
+                            if len(ref_o[0]) == 1:
+                                compound_owner = ref_o[0][0]
+                                span = (hits[0][0], len(p.lemmas), [])
+                            break
                 if span is None:
                     continue
                 entity, length, extra_pieces = span
@@ -1336,16 +1403,16 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                 entity, length = None, 1
             explained[k] = length
             # the owner: the rest of this piece after "de", or a following "de ..." piece, or the selection
-            owner = None
+            owner = compound_owner
             rest = Piece(p.case, p.words)
-            if len(p.lemmas) > length:
+            if owner is None and len(p.lemmas) > length:
                 skip = length + (1 if p.lemmas[length:length + 1] == _OF() else 0)
                 ref, c, n, ex = _reference(rest, world, skip)
                 if ref:
                     amb = ref if len(ref) > 1 else amb
                     owner, cost, notes = ref[0], cost + c, notes + n
                     explained[k] = skip + ex
-            owner_at = (k, explained[k]) if owner is not None else None
+            owner_at = (k, explained[k]) if owner is not None and compound_owner is None else None
             if owner is None:
                 for j, q in enumerate(pieces):
                     if j != k and j not in used and q.case[:1] == _OF():
@@ -1855,7 +1922,9 @@ def _understand(text: str, world: World, by: str = "usuario") -> Understanding:
     if best.ambiguous:
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in best.ambiguous[:6])
         return Understanding(text, tokens, readings, "perguntar", langs.msg("which", names=names))
-    rivals = [r for r in readings[1:] if r.cost - best.cost < 1.0 and r.constraints != best.constraints]
+    # (readings of an unknown verb, the fallback when nothing else applies, never rival a grounded reading)
+    rivals = [r for r in readings[1:] if r.cost - best.cost < 1.0 and r.constraints != best.constraints
+              and not (r.unknown_verb and not best.unknown_verb)]
     if rivals:
         options = langs.msg("or").join(f"«{r.paraphrase}»" for r in [best] + rivals[:2])
         return Understanding(text, tokens, readings, "perguntar", langs.msg("did_you_mean", options=options))
