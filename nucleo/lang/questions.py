@@ -118,24 +118,40 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
                                           f"I did «{last.paraphrase}»: it was what the words of the request said."))
         return AnswerText("why", _say(lang, f"Fiz «{last.paraphrase}». Como entendi: {steps}.",
                                       f"I did «{last.paraphrase}». How I understood it: {steps}."))
-    tokens = analyse(re.sub(r"\?+\s*$", "", text))
+    from . import alternatives
+    from . import ground as gr
+    from . import logic_form as lf
+
+    analysis = alternatives.analyses(re.sub(r"\?+\s*$", "", text))
+    if not analysis:
+        return None
+    tokens = analysis[0].tokens
     words = [t for t in tokens if t.upos != "PUNCT"]
     if not words:
         return None
-    # the parts of the question: everything is an argument (there is no request verb)
-    pred = _predicate(tokens) or words[0]
-    pieces = _pieces(tokens, pred) or [Piece((), words)]
     nodes = _nodes(doc)
-    # the element asked about: the first phrase that refers to one
-    target, prop = None, None
-    for k, p in enumerate(pieces):
-        span = _span_match(pieces, k, {"propriedade", "campo"}) if not p.case or k == 0 else None
-        if span is not None and prop is None:
-            prop = span[0]
-            continue
-        ref = _reference(p, world)[0] if p.words else []
-        if len(ref) == 1 and target is None:
-            target = ref[0]
+    # what the question is about, grounded the same way as requests: the property asked (with its owner) and the
+    # element asked about, over the phrases of the question's logical form
+    mentions = _question_mentions(lf.build(tokens), tokens)
+    target, prop, family = None, None, None
+    for m in mentions:
+        for d in gr.properties(m, world):
+            if prop is None and d.kind in ("prop", "field") and d.data[0] in ("propriedade", "campo"):
+                prop = SimpleProp(d.data[0], d.data[1])
+                owner = d.data[2]
+                if owner is not None and len(owner.data) == 1:
+                    target = owner.data[0]
+            elif family is None and d.kind == "prop" and d.data[0] in ("lista", "familia"):
+                family = d.data
+                owner = d.data[2]
+                if owner is not None and len(owner.data) == 1 and target is None:
+                    target = owner.data[0]
+    if target is None:
+        # the element asked about: the phrase that refers to one most directly (cheapest), whatever its position
+        found = [(r.cost, k, r.data[0]) for k, m in enumerate(mentions) for r in gr.references(m, world)[:1]
+                 if len(r.data) == 1]
+        if found:
+            target = min(found)[2]
     if kind == "count" or kind == "exist":
         typ = _type_asked(tokens)
         if typ is None:
@@ -171,11 +187,14 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
                                             f"(the builder's default applies)."))
         return AnswerText("value", _say(lang, f"{prop.label} de {_name(world, target)}: {value}.",
                                         f"The {prop.label.lower()} of {_name(world, target)} is {value}."))
-    family = _family_asked(pieces)
     if family is not None and target is not None:
         from .understand import _prior
+        from .values import _builder_properties
 
-        props = sorted(family, key=lambda p: _prior(p, world.nodes[target]["type"]))
+        kind_, pid = family[0], family[1]
+        cands = list(pid) if kind_ == "lista" else \
+            [q for q, info in _builder_properties().items() if info.get("valueType") == pid]
+        props = sorted(cands, key=lambda p: _prior(p, world.nodes[target]["type"]))
         prop_id = props[0]
         value = _style(nodes, target, prop_id)
         label = _label("propriedade", prop_id)
@@ -200,6 +219,46 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     items = ", ".join(_name(world, k) + (f" («{nodes[k]['text']}»)" if nodes[k].get("text") else "") for k in kids)
     return AnswerText("content", _say(lang, f"{_name(world, container)} tem: {items}.",
                                       f"{_name(world, container)} has: {items}."))
+
+
+@dataclass
+class SimpleProp:
+    kind: str  # propriedade | campo
+    id: str
+
+    @property
+    def label(self) -> str:
+        return _label("propriedade" if self.kind == "propriedade" else "campo", self.id)
+
+
+def _question_mentions(sentence, tokens) -> list:
+    """The phrases of a question, in order: every mention of its predicates' roles (and of nested predicates), and
+    the predicate head itself when it is a noun ("qual a cor do título?")."""
+    from . import logic_form as lf
+
+    out = []
+
+    def visit(p):
+        if p.head.upos in ("NOUN", "PROPN"):
+            kids = {}
+            for t in tokens:
+                kids.setdefault(t.head, []).append(t)
+            out.append(lf.mention(p.head, kids))
+        for r, w, x in p.roles:
+            if isinstance(x, lf.Mention):
+                out.append(x)
+            elif isinstance(x, lf.Predicate):
+                visit(x)
+
+    for p in sentence.predicates:
+        visit(p)
+    # with the phrases attached to them, at any depth ("o que tem na seção Topo?" however it was parsed)
+    full, stack = [], list(out)
+    while stack:
+        m = stack.pop(0)
+        full.append(m)
+        stack = [x for _, x in m.attached] + list(m.conj) + stack
+    return full
 
 
 def _type_asked(tokens) -> str | None:
