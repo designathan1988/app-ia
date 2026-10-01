@@ -79,6 +79,25 @@ class Tagger:
             prev2, prev = prev, t
         return out
 
+    def tag_kbest(self, words: list[str], k: int = 4, beam: int = 8) -> list[tuple[float, list[str]]]:
+        """The k best tag sequences with their scores (beam search over the same model as ``tag``). Words in the
+        tag dictionary keep their tag; the alternatives are where the model itself hesitates."""
+        agenda: list[tuple[float, list[str]]] = [(0.0, [])]
+        for i, w in enumerate(words):
+            fixed = self.tagdict.get(w.lower())
+            nxt = []
+            for score, seq in agenda:
+                if fixed is not None:
+                    nxt.append((score, seq + [fixed]))
+                    continue
+                prev = seq[-1] if seq else "<s>"
+                prev2 = seq[-2] if len(seq) > 1 else ("<s>" if seq else "<s2>")
+                sc = self.model.scores(self._features(i, words, prev, prev2))
+                best = sorted(self.model.classes, key=lambda c: -sc.get(c, 0.0))[:3]
+                nxt += [(score + sc.get(c, 0.0), seq + [c]) for c in best]
+            agenda = sorted(nxt, key=lambda x: -x[0])[:beam]
+        return agenda[:k]
+
     def train(self, sentences: list[Sentence], epochs: int = 5, seed: int = 0) -> None:
         counts: dict[str, Counter] = defaultdict(Counter)
         for s in sentences:
@@ -212,6 +231,39 @@ class Parser:
         return ["b", "ht=" + ht, "dt=" + dt, "hd=" + ht + dt + direction, "dw=" + dw, "hw=" + hw,
                 "hwdt=" + hw + dt, "dwht=" + dw + ht, "dir=" + direction, "dist=" + str(min(abs(head - dep), 6)),
                 "ctx=" + prev_t + dt + next_t, "dt dir=" + dt + direction, "root=" + str(head == 0)]
+
+    def parse_kbest(self, words: list[str], tags: list[str], k: int = 4, beam: int = 8) -> list[tuple[float, list[int]]]:
+        """The k best distinct head assignments with their scores: beam search over the transitions instead of
+        the greedy choice, so a tree the greedy parser would miss is still available to the interpretation."""
+        n = len(words) + 1
+        W = [x.lower() for x in words] + ["<root>"]
+        T = list(tags) + ["ROOT"]
+        start = (0.0, 0, [], [None] * n, [[[], []] for _ in range(n)])
+        agenda = [start]
+        done = []
+        while agenda:
+            nxt = []
+            for score, i, stack, heads, deps in agenda:
+                if not stack and i >= n - 1:
+                    done.append((score, heads))
+                    continue
+                feats = self._features(W, T, i, n, stack, deps)
+                sc = self.model.scores(feats)
+                for m in self._valid(i, n, len(stack)):
+                    st, hd, dp = list(stack), list(heads), [[list(a), list(b)] for a, b in deps]
+                    j = self._apply(m, i, st, hd, dp)
+                    nxt.append((score + sc.get(m, 0.0), j, st, hd, dp))
+            agenda = sorted(nxt, key=lambda x: -x[0])[:beam]
+        out, seen = [], set()
+        for score, heads in sorted(done, key=lambda x: -x[0]):
+            hs = tuple(0 if h is None or h == n - 1 else h + 1 for h in heads[: n - 1])
+            if hs not in seen:
+                seen.add(hs)
+                out.append((score, list(hs)))
+        return out[:k]
+
+    def label(self, words: list[str], tags: list[str], heads: list[int]) -> list[tuple[int, str]]:
+        return [(h, self.labeler.predict(self._label_features(words, tags, d, h))) for d, h in enumerate(heads, 1)]
 
     def parse(self, words: list[str], tags: list[str]) -> list[tuple[int, str]]:
         heads = self.parse_heads(words, tags)

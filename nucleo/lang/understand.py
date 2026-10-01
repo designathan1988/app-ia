@@ -145,6 +145,12 @@ def analyse(text: str) -> list[Token]:
     words = tokenize(text)
     tags = tagger.tag([("VALOR" if is_literal(w) else w) for w in words])
     arcs = parser.parse([("VALOR" if is_literal(w) else w) for w in words], tags)
+    return make_tokens(words, tags, arcs)
+
+
+def make_tokens(words: list[str], tags: list[str], arcs: list) -> list[Token]:
+    """Tokens (with lemmas and homograph alternatives) from words, tags and (head, relation) arcs."""
+    _, _, lem, _ = _models()
     out = []
     for i, (w, t, (h, lab)) in enumerate(zip(words, tags, arcs), 1):
         if is_literal(w):

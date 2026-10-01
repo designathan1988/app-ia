@@ -180,7 +180,17 @@ def predicate(tok, kids, tokens, act: str = "request") -> Predicate:
         if role == "adv":
             p.roles.append(("adv", _case_of(c, kids), _value_or_mention(c, kids)))
             continue
-        p.roles.append((role, _case_of(c, kids), _value_or_mention(c, kids)))
+        case = _case_of(c, kids)
+        if role in ("obl", "obj") and (c.upos == "ADJ" or c.upos == "VERB" and _participle(c)) and cop is None                 and not case:
+            # an adjective is never a nominal argument: depending on a verb, it predicates a state of the object
+            # or subject (secondary predication, UD xcomp)
+            role = "result"
+        elif role == "obj" and case:
+            role = "obl"  # an object never has a case marker: a phrase with a preposition is oblique
+        elif role == "obl" and not case and c.upos in ("NOUN", "PROPN", "PRON") and not p.role("obj") and                 p.kind == "event":
+            # a nominal argument without a preposition is the object (UD obl always has a case marker)
+            role = "obj"
+        p.roles.append((role, case, _value_or_mention(c, kids)))
     return p
 
 
@@ -211,14 +221,19 @@ def build(tokens) -> Sentence:
         top = r
         # a modal or volitive head ("quero", "pode", "tem que", "should"): the act, and the predicate it governs
         while top.lemma in MODALS and top.upos in ("VERB", "AUX"):
+            # it governs a verbal complement (an infinitive), never a noun or a participle: "quero o parágrafo
+            # sublinhado" is a wish about a state, "quero sublinhar o parágrafo" a wish about an act
             nxt = next((c for c in kids.get(top.i, []) if _base(c.deprel) in ("xcomp", "ccomp", "obj")
-                        and c.upos in ("VERB", "AUX", "ADJ", "NOUN", "PROPN")), None)
+                        and c.upos in ("VERB", "AUX") and not _participle(c)), None)
             if nxt is None:
                 break
             act = "wish" if fold(top.lemma) in ("querer", "want", "like", "gostar", "precisar", "need") else \
                 ("obligation" if fold(top.lemma) in ("ter", "dever", "must", "have", "should") else act)
             top = nxt
         p = predicate(top, kids, tokens, act)
+        if top is not r and not p.role("subj"):
+            # the subject of a modal or control verb is also the subject of the predicate it governs (UD xcomp)
+            p.roles += [(rl, w, x) for rl, w, x in predicate(r, kids, tokens, act).roles if rl == "subj"]
         if top is not r and top.upos in ("ADJ", "NOUN", "PROPN") or \
                 any(_base(t.deprel) in ("aux",) and fold(t.lemma) in ("dever", "should", "must", "ter")
                     for t in kids.get(top.i, [])):
@@ -272,3 +287,15 @@ def show(s: Sentence) -> str:
         return f"{p.act}:{p.kind}:{p.lemma}{neg}({roles})"
 
     return " ; ".join(p_(p) for p in s.predicates)
+
+
+def signature(p: Predicate) -> str:
+    """A compact canonical form of a predicate, for tests: lemma(role[:case]=head, ...) with roles sorted;
+    nested predicates in brackets."""
+    def arg(x):
+        if isinstance(x, Predicate):
+            return "[" + signature(x) + "]"
+        return fold(x.head.form.lower())
+
+    roles = sorted(f"{r}{':' + w if w and r != 'obj' else ''}={arg(x)}" for r, w, x in p.roles)
+    return f"{fold(p.lemma)}({','.join(roles)})"
