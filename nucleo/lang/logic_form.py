@@ -274,6 +274,8 @@ def _declarative(top, tokens, kids, p) -> bool:
     subj = [x for x in p.role("subj") if isinstance(x, Mention)]
     if not subj or not any(t.i < top.i for m in subj for t in m.words):
         return False
+    if any(fold(m.head.form.lower()) in langs.profile().get("addressee", set()) for m in subj):
+        return False  # "você coloca o título...", "you set the title...": said to the listener, a directive
     if any(_base(t.deprel) == "aux" for t in kids.get(top.i, [])):
         return False
     verb = next((t for t in kids.get(top.i, []) if _base(t.deprel) == "cop"), top)

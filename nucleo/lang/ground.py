@@ -256,6 +256,10 @@ def properties(m: Mention, world) -> list[Den]:
             if m.head.i in ws:
                 kind = "field" if e.kind == "campo" else "prop"
                 out.append(Den(kind, (e.kind, e.id), 0.0, ws))
+    if out:
+        # the label that explains the most words is the one said ("largura máxima": max-width, not width)
+        longest = max(len(d.words) for d in out)
+        out = [d for d in out if len(d.words) == longest]
     campos = {fold(k): v for k, v in FRAMES["campos"].items()}
     if fold(m.head.form.lower()) in campos or lexicon.lemma_of(m.head.form) in campos:
         f = campos.get(fold(m.head.form.lower())) or campos[lexicon.lemma_of(m.head.form)]

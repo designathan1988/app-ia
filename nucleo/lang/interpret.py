@@ -127,7 +127,7 @@ CONTEXT_COST = 0.5  # an element or property taken from the discourse, not said 
 
 
 # -- the kinds of state -----------------------------------------------------------------------------------------
-def _style(p, args, ev, world, ctx=None) -> list[Cand]:
+def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
     u = _u()
     from .values import _builder_properties
 
@@ -207,14 +207,14 @@ def _style(p, args, ev, world, ctx=None) -> list[Cand]:
             best = min(c for _, _, c in options)
             chosen = [o for o in options if o[2] == best]
             prop, value, prior = chosen[0]
-            bp, st = world.layer
+            bp, st, layer_words = _layer(p, tokens, world)
             ask = None
             if v.kind == "cmp":
                 value, ask = _scaled(world, nodes[0], prop, v.data)
             cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
                      "value": u._as_keyword(value, prop)} for n in nodes]
             explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
-                ev.particles | explained_side
+                ev.particles | explained_side | layer_words
             # (the owner's cost is already in the property said when the element is that owner)
             t_cost = 0.0 if owner is not None else t.cost
             cost = v.cost + t_cost + prior + ev.kinds.get("style", 9.0)
@@ -293,6 +293,36 @@ def _scaled(world, node, prop, direction):
     n, unit = float(m.group(1)), m.group(2)
     new = round(n * (COMPARATIVE_STEP if direction > 0 else 1 / COMPARATIVE_STEP), 2 if unit in ("rem", "em") else 0)
     return f"{int(new) if unit in ('px', '%') else new}{unit}", None
+
+
+def _layer(p: lf.Predicate, tokens, world) -> tuple:
+    """The breakpoint and style state a change is for: catalog labels said anywhere in the clause ("ao passar o
+    mouse", "no tablet", "no estado depois", "on hover"); (breakpoint, state, tokens explained)."""
+    bp, st = world.layer
+    ws = set()
+    own = sorted((t for t in tokens if t.upos != "PUNCT"), key=lambda t: t.i)
+    seq = tuple(lexicon.lemma_of(t.form) for t in own)
+    k = 0
+    while k < len(seq):
+        hits = lexicon.match(seq, {"breakpoint", "estado"}, k)
+        if not hits:
+            k += 1
+            continue
+        e, n = hits[0]
+        if e.kind == "breakpoint":
+            bp = e.id
+        else:
+            st = e.id
+        ws |= {t.i for t in own[k:k + n]}
+        # the preposition and the common noun before the label ("no estado depois", "in the hover state")
+        j = k - 1
+        while j >= 0 and own[j].upos in ("ADP", "DET", "NOUN") and own[j].i not in ws and k - j <= 3:
+            if own[j].upos == "NOUN" and lexicon.match((seq[j],), {"tipo", "propriedade"}):
+                break
+            ws.add(own[j].i)
+            j -= 1
+        k += n
+    return bp, st, ws
 
 
 def _side_words(args, va, ta):
@@ -444,7 +474,10 @@ def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
                     notes.append("sem local: onde o editor puser")
                 if a.mention.det == "definite":
                     cost += u.COST["definido_com_referente"]
-                out.append(Cand("added", [{"kind": "added", "type": k.data, "parent": parent, "index": index}],
+                extras, extra_words = _new_element_fields(a.mention, world)
+                explained |= extra_words
+                out.append(Cand("added", [{"kind": "added", "type": k.data, "parent": parent, "index": index,
+                                           **extras}],
                                 cost, explained, notes, amb))
     for a, t in _themes(p, args, ctx):
         # removed
@@ -469,6 +502,29 @@ def _structural(p, args, ev, world, ctx=None) -> list[Cand]:
                             set(t.words) | set(pd.words) | {p.head.i} | _case_tokens(pa.mention), list(t.notes),
                             list(t.data) if t.ambiguous else list(anchors) if pd.ambiguous else []))
     return out
+
+
+def _new_element_fields(m: lf.Mention, world) -> tuple[dict, set]:
+    """The text and name a new element is given in its own phrase: a field word with a literal ("com o texto
+    'X'", "with the text 'X'") or a naming participle with a literal ("chamado X", "named X")."""
+    extras, words = {}, set()
+    for case, a in m.attached:
+        lits = [d for d in gr.values(a) if d.kind == "lit"] + \
+            [d for _, b in a.attached for d in gr.values(b) if d.kind == "lit"]
+        if not lits:
+            continue
+        lit = min(lits, key=lambda d: d.cost)
+        field_said = [d for d in gr.properties(a, world) if d.kind == "field" and d.data[1] in ("text", "name")]
+        if field_said:
+            fid = field_said[0].data[1]
+        else:
+            # a participle that names ("chamado", "named"): the naming frame's verb
+            ev = gr.verb_evidence(lf.Predicate(a.head, _participle_lemma(a.head) or a.head.lemma), None)
+            fid = "name" if ev.kinds.get("field:name", 9.0) < 1.0 else None
+        if fid and fid not in extras:
+            extras[fid] = lit.data
+            words |= {t.i for t in a.words}
+    return extras, words
 
 
 def _value_removal(p, args, ev, world) -> list[Cand]:
@@ -605,7 +661,7 @@ def readings(p: lf.Predicate, world, tokens, ctx: Context | None = None) -> list
             a.role, a.case = "obj", ""
     lemmas = {t.i: lexicon.lemma_of(t.form) for t in tokens}
     lemmas.update({t.i: fold(t.lemma) for t in tokens if t.upos in ("VERB", "ADP", "ADV")})
-    cands = _style(p, args, ev, world, ctx) + _commands(p, args, ev, world, lemmas, ctx) + \
+    cands = _style(p, args, ev, world, ctx, tokens) + _commands(p, args, ev, world, lemmas, ctx) + \
         _structural(p, args, ev, world, ctx) + _fields(p, args, ev, world, ctx) + _value_removal(p, args, ev, world)
     # a causative ("faz o parágrafo sumir", "make the image disappear"): the caused event, its theme the causee
     for r, w, q in p.roles:
@@ -697,10 +753,13 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
             rs = readings(p, w, a.tokens, local)
             if p.act == "assertion":
                 # information: what it says is noted, and what it is about becomes the topic; nothing is done
+                # (it pays for what it leaves ungrounded, as a request does: information is not a cheaper way out)
                 if rs:
                     facts.append(rs[0])
-                    total += min(rs[0].cost, u_limit())
+                    total += rs[0].cost
                     local = _after([rs[0]], local, w)
+                else:
+                    total += u_limit()
                 continue
             if not rs or rs[0].cost > u_limit():
                 if _courtesy(p, a.tokens):

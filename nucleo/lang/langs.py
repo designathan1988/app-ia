@@ -25,6 +25,8 @@ PROFILES = {
         "universal": {"todo", "toda", "todos", "todas", "cada"},
         # totality: "a página inteira" is the page itself, all of it
         "whole": {"inteiro", "inteira", "inteiros", "inteiras", "todo", "toda"},
+        # the addressee: a clause whose subject is the listener is a directive, never information
+        "addressee": {"você", "voce", "vocês", "voces", "tu", "senhor", "senhora"},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
         # degree: comparison words and the verbs of changing an amount (closed class)
@@ -56,6 +58,7 @@ PROFILES = {
         "from": "from",
         "universal": {"all", "every", "each"},
         "whole": {"whole", "entire", "full"},
+        "addressee": {"you"},
         "sides": {"antes": "top", "depois": "bottom"},
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
         "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},
