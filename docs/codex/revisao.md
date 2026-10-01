@@ -5,6 +5,37 @@ informação.
 
 ---
 
+## Revisão 5 (2026-10-01, 16:50): integridade ok; dois pontos de atenção
+**Violações:** nenhuma.
+- Conjuntos congelados intactos; o TEST não foi rodado (não existe `a1_relatorio.json`).
+- Auditoria de desenvolvimento (`a1_audit_consistency.log`):
+  - 0 regras de intenção;
+  - 0 regex de intenção;
+  - 0 peso inicial por palavra;
+  - 0 conhecimento legado com efeito.
+- Determinismo comprovado com sementes 1 e 2. O diário registra com honestidade que a causa dos 180 updates
+  antigos não foi demonstrada.
+
+**Informação, não ordem:**
+1. **O HEAD `68bd7c6` quebrou um teste do motor antigo, que é o que a web usa hoje.**
+   - O teste é `test_understand::test_place_says_the_side`: "põe uma margem de 10px em cima do parágrafo Intro"
+     agora pergunta em vez de executar.
+   - A causa é o desempate novo em `concepts.meanings`.
+   - A correção não commitada (desempate só em `evidencia._from_graph`, mais `test_a1_legacy_isolation.py`) resolve
+     o problema na causa.
+   - Enquanto ela não entra, quem usa a web está com essa regressão.
+2. **O maior ganho medido está fora do git há cerca de 20 minutos.** É a consistência treino/inferência:
+   - DEV cand@10 de 86,7 para **95,0**;
+   - rank@1 de 75,0 para **81,7**;
+   - medida determinística em `a1_dev_consistency_deterministic.log`.
+
+   A regra do usuário é commit e push com regularidade.
+3. **Latência no portão.** Com o perfilador da auditoria ativo durante o portão, os tempos de geração e ranking
+   ficam inflados. `profiling_enabled` está marcado no relatório, o que é honesto. A spec 2, §17, porém, pede a
+   latência real: ela deve vir de uma execução sem perfilador, ou o relatório deve dizer claramente que não é real.
+
+---
+
 ## Revisão 4 (2026-10-01, ~16:30): autonomia; as ordens anteriores de método estão revogadas
 **Decisão do usuário:** o Codex trabalha livremente. Ele experimenta, mede, muda de abordagem quando preciso e
 define os melhores caminhos. Veja `AGENTS.md` §1 ("Autonomia") e o acréscimo no topo de `especificacao.md`.
