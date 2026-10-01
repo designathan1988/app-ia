@@ -235,8 +235,12 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
     if m.new:
         return []  # something said to be new has no referent
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
-    names = [n for n in _named(texts + m.names, world) if not _default_name(n, world)]
-    phrase = [(n, ws) for n, ws in _phrase_names(m, world) if not _default_name(n, world)]
+    # (an element with its type's default name is not named by the type word itself, "o título"; it is when the name
+    # is said besides the type word, "a página Page")
+    head_text = literal_value(m.head.form).lower()
+    names = [n for n in _named(texts + m.names, world)
+             if not (_default_name(n, world) and (world.nodes[n]["name"] or "").lower() == head_text)]
+    phrase = [(n, ws) for n, ws in _phrase_names(m, world) if not (_default_name(n, world) and m.head.i in ws)]
     cross_cost = 0.0
     if phrase:
         names = [nid for nid, _ in phrase]

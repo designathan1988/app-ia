@@ -970,6 +970,13 @@ def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool
             chosen.append(rs[0])
             local = _after([rs[0]], local, w)
             w = _world_with(w, local)
+        # words of the sentence that no predicate covers (an analysis that hung a phrase outside every clause)
+        covered = set().union(*(_content_tokens(p) for p in s.predicates)) if s.predicates else set()
+        for t in a.tokens:
+            if t.i in covered or t.upos == "PRON" or t.i in {q.head.i for q in s.predicates}:
+                continue
+            if t.upos in ("NOUN", "PROPN", "ADJ", "VERB", "ADV", "NUM", "X") or is_literal(t.form):
+                total += MEANINGFUL_UNUSED if _meaningful(t) else UNUSED
         if ok and (chosen or facts):
             best = total if best is None else min(best, total)
             out.append(Interpretation(total, cons, chosen, a, s,
@@ -1175,7 +1182,7 @@ def _decide(text, its, world, lang):
         names = ", ".join(f"«{world.nodes[n]['name']}»" for n in amb[:6] if n in world.nodes)
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("which", names=names), lang)
     rivals = [i for i in its[1:] if i.cost - best.cost < RIVAL_MARGIN and
-              _effect(i.constraints) != _effect(best.constraints)]
+              _effect(i.constraints) != _effect(best.constraints) and i.constraints]  # (doing nothing is no rival)
     if rivals:
         options = langs.msg("or").join(f"«{u.paraphrase(i.constraints, world)}»" for i in [best] + rivals[:2])
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("did_you_mean", options=options), lang)
