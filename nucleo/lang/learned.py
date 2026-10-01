@@ -30,8 +30,17 @@ _CACHE: dict = {}
 
 def _load() -> dict:
     """The learned vocabulary, read again only when the file changed (it is read on every word looked up)."""
+    import time
+
+    # (the file is looked at again at most twice a second: it is read on every word looked up)
+    now = time.monotonic()
+    if _CACHE.get("path") == str(STORE) and now - _CACHE.get("checked", 0) < 0.5 and "data" in _CACHE:
+        return _CACHE["data"]
+    _CACHE["checked"], _CACHE["path"] = now, str(STORE)
     if not STORE.exists():
-        return {"verbos": {}, "expressoes": {}, "estruturas": {}}
+        _CACHE["data"] = {"verbos": {}, "expressoes": {}, "estruturas": {}}
+        _CACHE["stamp"] = None
+        return _CACHE["data"]
     stamp = (str(STORE), STORE.stat().st_mtime_ns)
     if _CACHE.get("stamp") != stamp:
         _CACHE["stamp"], _CACHE["data"] = stamp, json.loads(STORE.read_text(encoding="utf-8"))
@@ -41,6 +50,7 @@ def _load() -> dict:
 def _save(d: dict) -> None:
     STORE.parent.mkdir(parents=True, exist_ok=True)
     STORE.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+    _CACHE.clear()  # (what was learned is seen at once)
 
 
 def verbs() -> dict:

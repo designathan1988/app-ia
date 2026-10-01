@@ -114,23 +114,33 @@ def _named(texts, world) -> list:
     return out
 
 
-def _default_name(nid: str, world) -> bool:
-    """The element still has the name the editor gives (its type's label, maybe with a number: "Parágrafo 2"): the
-    word that matches it is the type word, which does not single the element out ("o título" with two titles)."""
-    import re
-
-    node = world.nodes.get(nid) or {}
-    name = re.sub(r"\s+\d+$", "", node.get("name") or "")
-    labels = {fold(e.label.lower()) for e in lexicon.load() if e.kind == "tipo" and e.id == node.get("type")}
+@lru_cache(maxsize=256)
+def _type_labels(etype: str) -> frozenset:
+    """The folded labels of an element type in every language's catalog ("parágrafo", "paragraph")."""
     from .lexicon import _load
 
+    out = set()
     for lang in ("pt", "en"):
-        labels |= {fold(e.label.lower()) for e in _load(lang) if e.kind == "tipo" and e.id == node.get("type")}
-    if not (bool(name) and fold(name.lower()) in labels):
+        out |= {fold(e.label.lower()) for e in _load(lang) if e.kind == "tipo" and e.id == etype}
+    return frozenset(out)
+
+
+def _bare_name(name: str) -> str:
+    import re
+
+    return fold(re.sub(r"\s+\d+$", "", name or "").lower())
+
+
+def _default_name(nid: str, world) -> bool:
+    """The element still has the name the editor gives (its type's label, maybe with a number: "Parágrafo 2"), and
+    another element of its type has one too: the word that matches it is the type word, which does not single the
+    element out ("o título" with two titles)."""
+    node = world.nodes.get(nid) or {}
+    labels = _type_labels(node.get("type") or "")
+    if not node.get("name") or _bare_name(node.get("name")) not in labels:
         return False
-    # (it still singles the element out when no other element of its type has a default name too)
-    others = [o for o, v in world.nodes.items() if o != nid and v.get("type") == node.get("type")]
-    return any(fold(re.sub(r"\s+\d+$", "", world.nodes[o].get("name") or "").lower()) in labels for o in others)
+    return any(o != nid and v.get("type") == node.get("type") and _bare_name(v.get("name")) in labels
+               for o, v in world.nodes.items())
 
 
 def _name_key(text: str) -> tuple:
@@ -158,6 +168,14 @@ def _phrase_names(m: Mention, world) -> list:
     return out
 
 
+@lru_cache(maxsize=20_000)
+def _word_concepts(word: str, lang: str) -> frozenset:
+    from . import concepts
+
+    with langs.use(lang):
+        return frozenset(c for c, cost in concepts.concepts_of(lexicon.lemma_of(word), lang)[:3])
+
+
 def _cross_named(m: Mention, world) -> list:
     """Elements named in the other language: an English word that shares its concept with a Portuguese name
     ("the photo" for an element named "Foto", "credits" for "Créditos"), through the wordnets' shared concepts.
@@ -179,8 +197,7 @@ def _cross_named(m: Mention, world) -> list:
             continue
         used = set()
         for w in words:  # every content word of the name, said in this language, in any order ("card text")
-            with langs.use(other):
-                theirs = {c for c, cost in concepts.concepts_of(lexicon.lemma_of(w), other)[:3]}
+            theirs = _word_concepts(w, other)
             hit = next((i for i, cs in mine.items() if i not in used and cs & theirs), None)
             if hit is None:
                 break
