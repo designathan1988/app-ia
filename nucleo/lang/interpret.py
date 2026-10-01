@@ -290,7 +290,10 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 if said is not None and said[0] == "atributo":
                     # an HTML attribute said ("o id do parágrafo como 'note'"): the element's attributes
                     cons = [{"kind": "field", "id": n, "field": "attributes", "value": {prop: value}} for n in nodes]
-                explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
+                # (the verb is explained by the style it asks; the head of a copular clause is its attribute, a word
+                # that must be part of the value: "should be light gray" is not "gray" with "light" left over)
+                head_explained = {p.head.i} if "style" in ev.kinds and p.kind != "state" else set()
+                explained = set(v.words) | set(t.words) | head_explained | \
                     ev.particles | explained_side | layer_words
                 # (the owner's cost is already in the property said when the element is that owner)
                 t_cost = 0.0 if owner is not None else t.cost

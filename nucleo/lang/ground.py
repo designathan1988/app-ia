@@ -115,11 +115,18 @@ def _labels_of(n: dict) -> list:
     return [x for x in out if x]
 
 
+def _key(text: str) -> str:
+    """A name compared without case, accents, spacing or punctuation ("R$ 99" said as "R $ 99")."""
+    import re
+
+    return re.sub(r"[\W_]+", "", fold(text.lower()))
+
+
 def _named(texts, world) -> list:
     out = []
+    keys = {_key(x) for x in texts if x}
     for nid, n in world.nodes.items():
-        names = [x.lower() for x in _labels_of(n)]
-        if names and any(x.lower() in names for x in texts):
+        if any(_key(x) in keys for x in _labels_of(n)):
             out.append(nid)
     return out
 
@@ -347,8 +354,14 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     # (an element with its type's default name is not named by the type word itself, "o título"; it is when the name
     # is said besides the type word, "a página Page")
     head_text = literal_value(m.head.form).lower()
+    said_keys = {_key(x) for x in texts + m.names if x}
+    by_text = lambda n: isinstance(world.nodes[n].get("text"), str) and \
+        _key(world.nodes[n]["text"]) in said_keys  # noqa: E731  (named by the text it shows, not its name)
     names = [n for n in _named(texts + m.names, world)
-             if not (_default_name(n, world) and (world.nodes[n]["name"] or "").lower() == head_text)]
+             if by_text(n) or not (_default_name(n, world) and (world.nodes[n]["name"] or "").lower() == head_text)]
+    # (an element named by its text is that one even among elements with default names: "o parágrafo Frete grátis")
+    if any(by_text(n) for n in names):
+        names = [n for n in names if by_text(n)]
     # (a name lying wholly inside an attached phrase is that phrase's referent, which restricts by containment: "o
     # título do pacote 1" is the title inside «Pacote 1», not «Pacote 1»)
     inside_attached = {x.i for _, a in m.attached for x in a.words}
@@ -399,8 +412,10 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
                  any(world.nodes[n]["type"] == ty for ty, _, _ in types)]
         cands = typed or names
         cost = 0.0 if typed else COST["tipo_diferente_do_nome"]
-        explained |= {t.i for t in m.words if literal_value(t.form).lower() in
-                      {(world.nodes[n]["name"] or "").lower() for n in names} and t.i not in inside_attached}
+        said_as = {_key(x) for n in names for x in _labels_of(world.nodes[n])}
+        explained |= {t.i for t in m.words if _key(literal_value(t.form)) in said_as and t.i not in inside_attached}
+        if any(by_text(n) for n in names) and _field_label(m.head):
+            explained.add(m.head.i)  # ("o texto Loja Exemplo", "the Loja Exemplo text": the element showing it)
         explained |= set().union(*(ws for _, ws in phrase)) if phrase else set()
         if cross_cost:
             explained |= set().union(*(ws for _, ws, _ in _cross_named(m, world)))

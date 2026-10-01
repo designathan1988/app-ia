@@ -643,6 +643,19 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - "remove the italics from the quote";
   - cortesia seguida de pedido em inglês ("Thanks! Now underline the credits.").
 
+### Rodada 13 (2026-10-01): o que o congelado v6 deixou perguntado, em outras frases
+- `experiments/rodada13.py`: uma oitava página feita como o editor faz, com nomes padrão ("Título 2",
+  "Parágrafo 2") e elementos conhecidos pelo texto. Tem 20 pedidos e 4 perguntas.
+- **Limpa: 15/5/0 e 4/4. Depois: 20/0/0 e 4/4.**
+- Classes corrigidas:
+  - nomes de várias palavras aparecem aos modelos portugueses como um nome próprio que o treebank conhece ("Mais
+    vendidos" não é o advérbio "mais");
+  - nomes e textos comparados sem caixa, acento, espaço nem pontuação ("R$ 99");
+  - o filtro do nome padrão vale só quando o nome casou, nunca quando o texto casou;
+  - "o texto X" / "the X text" é o elemento que mostra X;
+  - o núcleo de uma oração copular é o atributo e só é explicado se fizer parte do valor ("should be light gray").
+- **Medidas:** regressão 246 com 0 errados; rodadas 7 a 13 com 0 errados; M5 93,7% e 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

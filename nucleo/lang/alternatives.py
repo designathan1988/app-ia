@@ -171,7 +171,9 @@ def _shown(w: str) -> str:
         return "John" if " " in w else w
     if is_literal(w):
         return "VALOR"
-    return w.split(" ")[0].capitalize() if " " in w else w
+    # (a page name of several words as a proper noun the Portuguese treebank knows as one: its first word could be
+    # read as itself, "Mais vendidos" as the adverb "mais")
+    return "Pedro" if " " in w else w
 
 
 def _tag_variants(words: list[str], tags: list[str]) -> list[tuple[list[str], list[str]]]:
