@@ -1016,14 +1016,45 @@ def _prior(prop: str, node_type: str | None) -> float:
     return cost
 
 
+def _descends(node: str, ancestor: str, world: World) -> bool:
+    n = world.nodes[node]["parent"]
+    while n is not None:
+        if n == ancestor:
+            return True
+        n = world.nodes[n]["parent"]
+    return False
+
+
+def _within(ref: list, pieces: list[Piece], k: int, world: World) -> tuple[list, dict]:
+    """Several candidates, and the next phrase names where the one meant is ("o título do CardA", "the heading in
+    the Plans section"): only the candidates inside that element. Returns the candidates and the phrase it used."""
+    if len(ref) <= 1 or k + 1 >= len(pieces):
+        return ref, {}
+    q = pieces[k + 1]
+    kind, skip = _place(q.case, q) if q.case else (None, 0)
+    if q.case[:1] != _OF() and kind != "dentro":
+        return ref, {}
+    container, _, _, ex = _reference(q, world, skip if kind == "dentro" else 0)
+    if len(container) != 1:
+        return ref, {}
+    inside = [n for n in ref if _descends(n, container[0], world)]
+    if not inside or len(inside) == len(ref):
+        return ref, {}
+    return inside, {k + 1: (skip if kind == "dentro" else 0) + ex}
+
+
 def _objects(pieces: list[Piece], world: World):
-    """(piece index, candidate nodes, cost, notes, lemmas explained) for each phrase that can be the object."""
+    """(piece index, candidate nodes, cost, notes, lemmas explained, other phrases used) for each phrase that can be
+    the object."""
     for k, p in enumerate(pieces):
         if p.case and not (len(p.case) == 1 and p.case[0] in ARTICLE_FORMS):
             continue
         ref, c, notes, ex = _reference(p, world)
         if ref:
-            yield k, ref, c, list(notes), ex
+            narrowed, extra = _within(ref, pieces, k, world)
+            if extra:
+                ref, c = narrowed, (COST["referente_por_tipo"] if len(narrowed) == 1 else c)
+            yield k, ref, c, list(notes), ex, extra
 
 
 def _verb_value_readings(lemma: str, pieces: list[Piece], world: World, pairs=None, inferred: bool = True
@@ -1032,10 +1063,10 @@ def _verb_value_readings(lemma: str, pieces: list[Piece], world: World, pairs=No
     applied to the element the sentence names."""
     pairs = _verb_value_pairs(lemma) if pairs is None else pairs
     readings = []
-    for k, ref, c, notes, ex in _objects(pieces, world) if pairs else ():
+    for k, ref, c, notes, ex, extra in _objects(pieces, world) if pairs else ():
         node = ref[0]
         for prop, value in pairs:
-            used, explained = {k}, {k: ex}
+            used, explained = {k} | set(extra), {k: ex, **extra}
             bp, st, more, extra = _layer(pieces, used, world)
             used |= set(more)
             for m in more:
@@ -1062,8 +1093,8 @@ def _command_readings(lemma: str, pieces: list[Piece], world: World, in_frame: b
     for cv in (command_verbs.table().get(lemma, []) if verbs is None else verbs):
         if in_frame and not cv.rest:
             continue
-        for k, ref, c, notes, ex in _objects(pieces, world):
-            used, explained = {k}, {k: ex}
+        for k, ref, c, notes, ex, extra in _objects(pieces, world):
+            used, explained = {k} | set(extra), {k: ex, **extra}
             if cv.rest:
                 j = next((j for j, q in enumerate(pieces) if j != k and (q.case + q.lemmas)[:len(cv.rest)] == cv.rest),
                          None)
@@ -1188,6 +1219,12 @@ def _frame_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
             ref, c, n, ex = _reference(p, world)
             if not ref:
                 continue
+            narrowed, extra = _within(ref, pieces, k, world)
+            if extra and f["resultado"] != "moved":  # (a move's place phrase is its destination, not a restriction)
+                ref, c = narrowed, (COST["referente_por_tipo"] if len(narrowed) == 1 else c)
+                for j, n_ in extra.items():
+                    used.add(j)
+                    explained[j] = n_
             if len(ref) > 1:
                 amb = ref
             if det in INDEFINITE:
@@ -1370,9 +1407,13 @@ def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
             # possession: "o texto do parágrafo Intro", "o conteúdo da seção" refer to that element
             ref, c, notes, ex = _reference(pieces[k + 1], world)
             rp = k + 1
+        within = {}
         if not ref:  # possession first: "o texto do parágrafo" is the paragraph, not "the text element"
             ref, c, notes, ex = _reference(p, world)
             rp = k
+            narrowed, within = _within(ref, pieces, k, world)
+            if within:
+                ref, c = narrowed, (COST["referente_por_tipo"] if len(narrowed) == 1 else c)
         if not ref:
             continue
         node = ref[0]
@@ -1381,14 +1422,20 @@ def _value_readings(f: dict, pieces: list[Piece], world: World) -> list[Reading]
         # them ("o titulo a direita", "o conteúdo do título Title centralizado")
         content = [t for t in pieces[rp].words if not is_literal(t.form) and t.form.lower() not in lexicon.stop()]
         tail = Piece((), content[ex:]) if len(content) > ex else None
-        options = [(j, q) for j, q in enumerate(pieces) if j not in (k, rp)] + ([(rp, tail)] if tail else [])
+        options = [(j, q) for j, q in enumerate(pieces) if j not in (k, rp) and j not in within] +             ([(rp, tail)] if tail else [])
+        for j, n_ in within.items():  # a value left at the end of the place phrase ("the heading in CardB red")
+            rest_w = [t for t in pieces[j].words if not is_literal(t.form) and t.form.lower() not in lexicon.stop()]
+            if len(rest_w) > n_:
+                options.append((j, Piece((), rest_w[n_:])))
         for j, q in options:
             for prop, value, vc in _value_candidates(q, world.nodes[node]["type"]):
-                used = {k, rp, j}
+                used = {k, rp, j} | set(within)
                 explained = {k: len(p.lemmas)} if rp != k else {}
+                explained.update(within)
                 explained[rp] = ex + (len(q.lemmas) if j == rp else 0)
                 if j != rp:
-                    explained[j] = _value_words(q, prop, value)
+                    # (a value at the end of the place phrase: the place's words plus the value's)
+                    explained[j] = within.get(j, 0) + _value_words(q, prop, value)
                 bp, st, more, extra = _layer(pieces, used, world)
                 used |= set(more)
                 for m in more:

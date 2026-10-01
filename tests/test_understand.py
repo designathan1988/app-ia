@@ -159,6 +159,11 @@ def test_general_mechanisms(aurora, text, expected):
     ("troque o texto do título Title por Café Serra", {"kind": "field", "field": "text", "value": "Café Serra"}),
     # the value's type tells which property of the family was meant
     ("mude a fonte do título Title para 32px", {"kind": "style", "property": "font-size", "value": "32px"}),
+    # quantifiers, ordinals and containment pick the elements
+    ("apague o último parágrafo", {"kind": "removed", "id": "n-note"}),
+    ("deixe o título do CardA em negrito", {"kind": "style", "id": "n-card-a-title", "property": "font-weight"}),
+    ("make the heading in CardB red", {"kind": "style", "id": "n-card-b-title", "property": "color", "value": "red"}),
+    ("delete the first heading", {"kind": "removed", "id": "n-title"}),
     # a color named in Portuguese, left at the end of the owner's phrase
     ("deixe o fundo da seção Hero azul", {"kind": "style", "id": "n-hero", "property": "background-color",
                                          "value": "blue"}),
@@ -191,3 +196,9 @@ def test_unknown_verb_with_one_meaning_left_is_carried_out():
     assert {k: u.best.constraints[0][k] for k in ("property", "value")} == {"property": "color", "value": "red"}
     assert understand("blorfe o parágrafo Intro", World.from_document(load_fixture("aurora"), [])).decision != \
         "executar"  # nothing but the element: any action would be a guess
+
+
+def test_universal_quantifier_applies_to_each():
+    u = understand("deixe todos os títulos vermelhos", World.from_document(load_fixture("aurora"), []))
+    assert u.decision == "executar"
+    assert {c["id"] for c in u.best.constraints} == {"n-title", "n-card-a-title", "n-card-b-title"}
