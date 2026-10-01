@@ -233,6 +233,13 @@ def _cross_named(m: Mention, world) -> list:
             continue
         used = set()
         for w in words:  # every content word of the name, said in this language, in any order ("card text")
+            if w.isdigit():
+                # (a number of the name is said as itself: "package 3" for «Pacote 3»)
+                hit = next((t.i for t in m.words if t.form == w and t.i not in used), None)
+                if hit is None:
+                    break
+                used.add(hit)
+                continue
             theirs = _word_concepts(w, other)
             hit = next((i for i, cs in mine.items() if i not in used and cs & theirs), None)
             if hit is None:
@@ -331,15 +338,24 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     head_text = literal_value(m.head.form).lower()
     names = [n for n in _named(texts + m.names, world)
              if not (_default_name(n, world) and (world.nodes[n]["name"] or "").lower() == head_text)]
-    phrase = [(n, ws) for n, ws in _phrase_names(m, world) if not (_default_name(n, world) and m.head.i in ws)]
+    # (a name lying wholly inside an attached phrase is that phrase's referent, which restricts by containment: "o
+    # título do pacote 1" is the title inside «Pacote 1», not «Pacote 1»)
+    inside_attached = {x.i for _, a in m.attached for x in a.words}
+    phrase = [(n, ws) for n, ws in _phrase_names(m, world) if not (_default_name(n, world) and m.head.i in ws)
+              and not ws <= inside_attached]
     cross_cost = 0.0
     if phrase:
         names = [nid for nid, _ in phrase]
     types = _types(_chain(m), m.head)  # (a type label can run over its phrase: "bloco de link")
-    if not phrase and not names and not types and (m.ordinal is not None or m.det == "universal") and \
-            _name_class(m, world):
-        pass  # (an ordinal or "every" picks among things of a kind: "the second book" is of the books, «Livro Um»,
-        # «Livro Dois», not the one element a name in the other language may mean)
+    present_types = {v["type"] for v in world.nodes.values()}
+    exact_type = any(c == 0.0 and ty in present_types for ty, c, _ in types)
+    use_class = not phrase and not names and not exact_type and not any(t.form.isdigit() for t in m.words) and \
+        bool(_name_class(m, world))  # (with a number, "package 3", the phrase names one element: «Pacote 3»)
+    if use_class:
+        # (an ordinal or "every" picks among things of a kind: "the second book" is of the books, «Livro Um», «Livro
+        # Dois», not the one element a name in the other language may mean; a type the word only reaches far in the
+        # graph, "package" ~ div, is no rival to the elements the page names so)
+        types = []
     elif not phrase and not names and not (types and (m.det == "universal" or _plural(m.head))):
         # a name said in the other language; when the word is also a type word, the element must be of that type
         # ("header" names no footer, whatever concept the two words share). (A plural or "todos" phrase is about a
@@ -373,7 +389,7 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
         cands = typed or names
         cost = 0.0 if typed else COST["tipo_diferente_do_nome"]
         explained |= {t.i for t in m.words if literal_value(t.form).lower() in
-                      {(world.nodes[n]["name"] or "").lower() for n in names}}
+                      {(world.nodes[n]["name"] or "").lower() for n in names} and t.i not in inside_attached}
         explained |= set().union(*(ws for _, ws in phrase)) if phrase else set()
         if cross_cost:
             explained |= set().union(*(ws for _, ws, _ in _cross_named(m, world)))
@@ -409,9 +425,14 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
         cost = COST["referente_por_tipo"]
         explained |= {m.head.i}
     # attached phrases restrict by containment: "o título do cartão", "the image in the header"
+    after_value = False
     for case, a in m.attached:
         if not restrict:
             break
+        if value_marker(case) or after_value:
+            # ("o resumo para Resumo da página": the value said, and what follows it, not where the element is)
+            after_value = True
+            continue
         sub = references(a, world)
         if not sub:
             continue
@@ -433,10 +454,22 @@ def _references_one(m: Mention, world, restrict: bool = True) -> list[Den]:
     # a noun before the head that refers to an element restricts by containment, as an attached phrase does ("the
     # card title" = the title of the card, English noun compounds); the elements of the type said inside it when the
     # name read first is not there
-    for t in m.mods:
-        if not restrict or t.upos not in ("NOUN", "PROPN"):
+    # (the modifiers before the head, as one phrase when they are several words with a number, "the package 1
+    # heading": «Pacote 1»)
+    before = [t for t in m.words if t.i < m.head.i and (t.upos in ("NOUN", "PROPN") and not is_literal(t.form)
+                                                        or t.form.isdigit())]
+    runs = [Mention(max((t for t in before if not t.form.isdigit()), key=lambda t: t.i), before)] \
+        if len(before) > 1 and any(t.form.isdigit() for t in before) and \
+        any(not t.form.isdigit() for t in before) else []
+    covered = set()
+    for t in runs + list(m.mods):
+        if not restrict or (t.head if isinstance(t, Mention) else t).upos not in ("NOUN", "PROPN"):
             continue
-        sub = references(Mention(t, [t]), world)
+        if not isinstance(t, Mention) and t.i in covered:
+            continue  # (already part of the run that restricted)
+        sub = references(t if isinstance(t, Mention) else Mention(t, [t]), world)
+        if sub and isinstance(t, Mention):
+            covered |= {x.i for x in t.words}
         if not sub:
             continue
         anchors = set(sub[0].data)
@@ -565,6 +598,31 @@ def properties(m: Mention, world) -> list[Den]:
     return res
 
 
+def value_marker(case: str) -> bool:
+    """A preposition that introduces the new name or text a change gives ("para", "como", "to", "as": the language
+    profile's closed class ``field_value``)."""
+    words = _words(case) if case else ()
+    return bool(words) and words[-1] in {fold(x) for x in langs.profile().get("field_value", ())}
+
+
+def surface(tokens) -> str:
+    """Tokens as written: the words a contraction was split into joined back ("de a página" -> "da página")."""
+    from .tokenize import contractions
+
+    joined = {tuple(v): k for k, v in contractions().items() if len(v) == 2}
+    words = [literal_value(t.form) for t in sorted(tokens, key=lambda t: t.i)]
+    out, k = [], 0
+    while k < len(words):
+        pair = tuple(w.lower() for w in words[k:k + 2])
+        if len(pair) == 2 and pair in joined:
+            out.append(joined[pair])
+            k += 2
+            continue
+        out.append(words[k])
+        k += 1
+    return " ".join(out)
+
+
 def _field_label(t) -> bool:
     """Whether a word is the label of an element's field ("texto", "text", "nome", "name": frames.json campos)."""
     from .base import FRAMES
@@ -599,9 +657,11 @@ def values(m: Mention) -> list[Den]:
              and not _function_word(t)]
     named = [t for t in words if literal_value(t.form) in m.names]
     if not any(d.kind == "lit" for d in out):
+        # (a literal is said in one piece: names joined across other words, "Intro para Lead", are two things)
+        gap = 2.0 if named and max(t.i for t in named) - min(t.i for t in named) != len(named) - 1 else 0.0
         if named and len(named) == len(words):
             # a name said bare ("para Destaque", "por Café Serra", "to Hero"): a literal text as said
-            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5,
+            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5 + gap,
                            frozenset(t.i for t in named)))
         elif len(words) > 1 and len(words) == len(content) and not m.attached:
             # a phrase as said ("Olá mundo"): a text; reading words that mean something as a text costs more
@@ -616,8 +676,24 @@ def values(m: Mention) -> list[Den]:
                 out.append(Den("lit", " ".join(t.form for t in whole), 1.0 + extra, frozenset(t.i for t in whole),
                                ("texto com palavras de significado",) if extra else ()))
         if named and not any(d.kind == "lit" for d in out):
-            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5,
+            out.append(Den("lit", " ".join(literal_value(t.form) for t in named), 0.5 + gap,
                            frozenset(t.i for t in named)))
+    # a name said with more words ("para Contato direto", "to Direct contact", "Resumo da página"): the phrase as
+    # said, from its first word to its last, function words included; a value marker inside it ("Intro para Lead")
+    # says the phrase is two, and costs
+    span = sorted((t for t in m.words if t.upos != "PUNCT"), key=lambda t: t.i)
+    while span and (span[0].upos in ("DET", "ADP") or span[0].deprel.split(":")[0] in ("case", "det", "mark")):
+        span = span[1:]
+    prof_ = langs.profile()
+    valued = any(value_index().get(fold(lexicon.lemma_of(t.form))) or fold(t.form.lower()) in prof_["more"] |
+                 prof_["less"] for t in span[1:])  # ("o título Massas frescas menor": a name and a comparative)
+    if len(span) > 1 and span[0].form[:1].isupper() and span[0].i > 1 and not valued and \
+            span[-1].i - span[0].i == len(span) - 1 and not any(is_literal(t.form) for t in span):
+        from .base import FRAMES
+
+        markers = {fold(x) for x in FRAMES["valor_casos"]}
+        inner = any(fold(t.form.lower()) in markers for t in span[1:])
+        out.append(Den("lit", surface(span), 0.5 + (2.0 if inner else 0.0), frozenset(t.i for t in span)))
     ix = value_index()
     if m.det == "indefinite":
         # the head of a phrase that introduces something ("uma cópia", "a copy") is not a value said; its
@@ -653,6 +729,8 @@ def values(m: Mention) -> list[Den]:
         pairs = ix.get(fold(lexicon.lemma_of(t.form)), []) or ix.get(fold(t.form.lower()), [])
         if t.i == m.head.i and m.det in ("definite", "demonstrative") and _field_label(t):
             continue  # ("the card text", "o texto do botão": the element's text, not the CSS keyword "text")
+        if any(e.lemmas == (lexicon.lemma_of(t.form),) for e, _ in lexicon.match((lexicon.lemma_of(t.form),), {"tipo"})):
+            continue  # (the label of an element type names elements: "título" is no value, whatever a dictionary says)
         if not pairs and t.i == m.head.i and m.det in ("definite", "demonstrative") and any(
                 e.lemmas != (e.id,) for e, n in lexicon.match((lexicon.lemma_of(t.form),), {"propriedade"}) if n == 1):
             continue  # "o fundo" names the property background; it is not (through the graph) the value bottom

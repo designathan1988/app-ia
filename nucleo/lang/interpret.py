@@ -219,7 +219,10 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                 options += _literal_options(said, lit, ntype,
                                             sided=bool(_side_words(args, va, ta, world)) or sided_target)
             elif v.kind == "cmp":
-                options += _comparative_options(said, ntype)
+                has = lambda q, n=nodes[0]: bool(  # noqa: E731
+                    ((world.nodes[n].get("styles") or {}).get(world.layer[0]) or {}).get(world.layer[1], {}).get(q)
+                    or u.default_style(world.nodes[n]["type"], q))
+                options += _comparative_options(said, ntype, has)
             if ev.props and any(q in ev.props for q, _, _ in options):
                 # the verb's own meaning is about properties ("alinhar", "align": alignment): one of them, whatever
                 # the element ("align the image to the right": its alignment, though an image is no text)
@@ -333,7 +336,7 @@ COMPARATIVE_STEP = 1.25  # one step of the usual type scale (a major third)
 NUMERIC = ("length", "length-percentage", "number", "integer")
 
 
-def _comparative_options(said, ntype) -> list:
+def _comparative_options(said, ntype, has=None) -> list:
     """The amount a comparative changes: the property said if it is an amount, else an amount whose label contains
     it ("a fonte maior": tamanho da fonte); with none said, the element's size (its text's size for a text
     element, its width otherwise)."""
@@ -343,7 +346,11 @@ def _comparative_options(said, ntype) -> list:
     builder = _builder_properties()
     if said is None:
         _, contents = u._property_facts()
-        return [("font-size" if contents.get(ntype) == "text" else "width", None, 0.5)]
+        if contents.get(ntype) == "text":
+            return [("font-size", None, 0.5)]
+        # (the size of a box: the dimension it has a value for, "diminui a marca" with a height set)
+        dims = [q for q in ("width", "height") if has is not None and has(q)]
+        return [(dims[0] if len(dims) == 1 else "width", None, 0.5)]
     kind, pid = said
     ids = list(pid) if kind == "lista" else [pid]
     out = [(q, None, u._prior(q, ntype)) for q in ids if builder.get(q, {}).get("valueType") in NUMERIC]
@@ -863,12 +870,26 @@ def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
     lits = [(a, d if not _css_form(d.data) else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes))
             for a in args for d in a.of("lit") if a.role in ("obj", "result", "attr", "obl", "content", "adv")
             and (a.role not in ("obl", "adv") or a.case and _value_case(a.case))]
-    # (a literal made of the name of an element of the page and other words, "Intro Lead": the name refers to the
-    # element; read inside a text it costs, as in a style value)
-    names = {(n.get("name") or "").lower() for n in world.nodes.values()} - {""}
-    lits = [(a, d if not (isinstance(d.data, str) and len(d.data.split()) > 1 and
-                          any(w.lower() in names for w in d.data.split()) and d.data.lower() not in names)
-             else gr.Den(d.kind, d.data, d.cost + 2.0, d.words, d.notes)) for a, d in lits]
+    # a value phrase the analysis left inside the object ("renomeia o resumo para Resumo da página", "rename the form
+    # to Direct contact" parsed as one phrase): from its value marker to the end of the phrase, as said
+    for a in args:
+        if a.role != "obj" or a.mention is None:
+            continue
+        for case, sub in a.mention.attached:
+            if not case or not gr.value_marker(case):
+                continue
+            first = min(t.i for t in sub.words)
+            span = sorted((t for t in a.mention.words if t.i >= first), key=lambda t: t.i)
+            marker = {t.i for t in span if t.deprel.split(":")[0] == "case" and t.head == sub.head.i}
+            body = [t for t in span if t.i not in marker]
+            arts = langs.profile()["articles"]
+            while body and (body[0].upos == "DET" or fold(body[0].form.lower()) in arts):
+                body = body[1:]  # ("pra CTA" = "para a CTA": the article is not part of the name)
+            if body and body[-1].i - body[0].i == len(body) - 1 and not any(is_literal(t.form) for t in body[1:]):
+                text = gr.surface(body)
+                lits.append((Arg("obl", case, sub, []), gr.Den("lit", text, 0.5 if body[0].form[:1].isupper() else 1.5,
+                                                             frozenset(t.i for t in span))))
+            break
     # a field said with its owner ("o texto do botão", "the button text", "o nome da foto")
     for a in args:
         for f in a.of("field"):

@@ -591,6 +591,27 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   - nome da página com palavras interrogativas ("Quem sou");
   - "coloca 24px de padding na galeria" lido como remoção.
 
+### Rodada 12 (2026-10-01): as classes do congelado v5, em outras frases
+- `experiments/rodada12.py`: uma sétima página (agência de viagens), com 27 pedidos e 8 perguntas.
+- **Limpa: 14/11/2 e 7/1/0. Depois: 27/0/0 e 8/8.**
+- Classes corrigidas, todas gerais:
+  - um número de um nome é dito como ele mesmo entre línguas ("package 3" = «Pacote 3»);
+  - um nome inteiro dentro de uma frase anexada é o referente dela, que restringe por contenção ("o título do
+    pacote 1");
+  - classe de nomes contra um tipo só alcançado de longe no grafo ("package" ~ div): vale a classe; com um número,
+    a frase nomeia um só elemento;
+  - os modificadores antes do núcleo, com número, formam uma frase ("the package 1 heading");
+  - um rótulo exato de tipo nunca é valor ("título" ≠ right);
+  - um nome dito com mais palavras é o literal como dito, com as palavras funcionais e as contrações reescritas
+    ("Resumo da página", "Contato direto", "Direct contact"); um marcador de valor dentro dele, ou nomes juntados
+    com intervalo ("Intro para Lead"), custam;
+  - frase de valor deixada dentro do objeto: do marcador ("para", "to": classe fechada `field_value` do perfil)
+    até o fim é o valor, e não restringe o referente;
+  - o comparativo usa a dimensão que a caixa tem;
+  - nova reanálise: o objeto que termina num valor depois de um substantivo;
+  - detecção de língua: as palavras fechadas do inglês que a wordnet não lista ("where", "is").
+- **Medidas:** regressão 246 com 0 errados; rodadas 7 a 12 com 0 errados; M5 93,7% e 0 silenciosos.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

@@ -271,6 +271,52 @@ def _label_word(t) -> bool:
     return any(e.lemmas == (lem,) for e, _ in lexicon.match((lem,), {"campo", "propriedade", "tipo"}))
 
 
+def _span_variants(tokens) -> list:
+    """An object phrase that ends with a value word after a noun, however the parser headed it ("make the package 1
+    heading italic" with "package" as the head): the noun before the value heads the object, the words before it
+    are its modifiers, and the value word is the verb's secondary predicate. One edit: (arcs, edits)."""
+    from .values import fold, index
+
+    out = []
+    kids = {}
+    for t in tokens:
+        kids.setdefault(t.head, []).append(t)
+
+    def subtree(i):
+        found, stack = [], [i]
+        while stack:
+            k = stack.pop()
+            found.append(k)
+            stack += [c.i for c in kids.get(k, [])]
+        return sorted(found)
+
+    by_i = {t.i: t for t in tokens}
+    for o in tokens:
+        verb = by_i.get(o.head)
+        if verb is None or verb.upos != "VERB" or _base(o.deprel) != "obj":
+            continue
+        span = subtree(o.i)
+        if len(span) < 3 or span[-1] - span[0] != len(span) - 1:
+            continue
+        e, n = by_i[span[-1]], by_i[span[-2]]
+        value = e.upos == "ADJ" or bool(index().get(fold(e.form.lower())))
+        if not value or _label_word(e) or is_literal(e.form) or n.upos not in ("NOUN", "PROPN") or \
+                (e.head == verb.i and n.head == verb.i):
+            continue
+        arcs = [(t.head, t.deprel) for t in tokens]
+        arcs[e.i - 1] = (verb.i, "xcomp")
+        arcs[n.i - 1] = (verb.i, "obj")
+        for k in span[:-2]:
+            t = by_i[k]
+            rel = "det" if t.upos == "DET" else "nummod" if t.upos == "NUM" else \
+                t.deprel if _base(t.deprel) in ("case", "det") else "compound"
+            if t.upos == "ADP" or _base(t.deprel) == "case":
+                continue
+            arcs[k - 1] = (n.i, rel)
+        out.append((arcs, [f"{e.form}: predicado de {verb.form}; {n.form} núcleo do objeto"]))
+    return out
+
+
 def _rehead_variants(tokens) -> list:
     """An object whose last word the parser made its head, though it is the state the verb gives the object ("make
     the Sobre nós section background yellow", "make the Fachada image 500px wide": the head is "yellow", "wide"): the
@@ -397,7 +443,7 @@ def analyses(text: str, limit: int = 200) -> list[Analysis]:
             tag_trees.append(a)
     # a head-final object re-headed as object + secondary predicate ("make the section background yellow")
     for a in list(tag_trees):
-        for arcs, edits in _rehead_variants(a.tokens):
+        for arcs, edits in _rehead_variants(a.tokens) + _span_variants(a.tokens):
             b = Analysis(make_tokens(words, [t.upos for t in a.tokens], arcs), a.cost + EDIT_COST, a.edits + edits)
             if _key(b.tokens) not in seen:
                 add(b.tokens, b.cost, b.edits)

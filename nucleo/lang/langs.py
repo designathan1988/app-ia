@@ -32,6 +32,7 @@ PROFILES = {
                     "nove": 9, "dez": 10},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
+        "field_value": ["para", "como", "por"],  # (the prepositions that give a new name or text: "renomeia X para Y")
         # degree: comparison words and the verbs of changing an amount (closed class)
         "more": {"maior", "maiores", "aumentar", "ampliar", "crescer", "engrossar"},
         "less": {"menor", "menores", "menos", "diminuir", "reduzir", "encolher", "afinar"},
@@ -66,6 +67,7 @@ PROFILES = {
         "numbers": {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
                     "ten": 10},
         "sides": {"antes": "top", "depois": "bottom"},
+        "field_value": ["to", "as"],  # (the prepositions that give a new name or text: "rename X to Y")
         "more": {"bigger", "larger", "more", "increase", "enlarge", "grow", "greater", "wider", "taller"},
         "less": {"smaller", "less", "decrease", "reduce", "shrink", "narrower", "shorter"},
         "new": {"new", "another", "extra", "more", "additional"},
@@ -153,6 +155,12 @@ def detect(text: str, names=()) -> str:
     text = " ".join(words)
     en_fn = PROFILES["en"]["articles"] | PROFILES["en"]["modals"] | {w for ws in PROFILES["en"]["locais"].values()
                                                                        for p in ws for w in p.split()}
+    # (the English closed classes the wordnet does not list: interrogatives, the forms of "be", pronouns; MorphoBr
+    # would read "is" as the plural of the letter i)
+    from .questions import INTERROGATIVES
+
+    en_fn = en_fn | {w for ws in INTERROGATIVES["en"].values() for x in ws for w in x.split()} | \
+        PROFILES["en"]["pronouns"] | {"is", "are", "was", "were", "be", "been", "am", "i", "you", "it", "there"}
     pt = sum(1 for w in words if analyses(w))
     en = sum(1 for w in words if w in _english_words() or w in en_fn or w.rstrip("s") in _english_words())
     accents = any(ch in text.lower() for ch in "áàâãéêíóôõúç")
