@@ -543,6 +543,18 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
 - **Medidas:** regressão 245 com 0 errados; rodada 7 52/4/0; rodada 8 39/4/0; rodada 9 41/3/0 e 24/24;
   **M5 93,7%** (era 93,1%) com 0 silenciosos.
 
+### Congelado v4 (2026-10-01), medido uma vez
+- `experiments/congelado4.py` (hash e2efc6312ee7): uma página nova (clínica veterinária), 59 pedidos e 16 perguntas.
+- **Pedidos 53/5/1, perguntas 16/16.** O v3 tinha dado 39/12/6.
+- O portão ainda falha por um errado: "make the copyright gray and italic" executou só o itálico.
+- O conjunto está gasto. As classes visíveis vão para a rodada 11, com outras frases:
+  - coordenação de dois valores em inglês perdendo o primeiro;
+  - lado com "embaixo de";
+  - nome antes do tipo com palavras funcionais ("the O que fazemos heading");
+  - "remove the italics";
+  - "the X button text to 'Y'" lido como afirmação;
+  - "the X image 200px wide".
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
