@@ -201,3 +201,46 @@ Os demais são substantivos ancorados a tipos de elemento por coincidência:
 
 O ganho sem nenhuma regra nova é de +4,5 a +5,1 LAS, e o UAS sobe de 2,6 a 3,1 pontos. O portão (+5 em todos)
 ainda não está fechado: falta o Bosque, e o inglês não foi treinado.
+
+### Revisão (2026-10-01), sem treinos novos
+
+**Sondagem ilustrativa (não é medida):** 20 formas comuns de pedir em português, na página de `seguranca.py`.
+- 1 executada certa ("tira essa imagem daí").
+- 3 executadas **erradas**:
+  - "joga o rodapé lá pra cima" → `transform-origin`;
+  - "deixa a página mais moderna" → texto "mais moderna";
+  - "o segundo botão tem que ser igual ao primeiro" → `align-items`.
+- 2 perguntas corretas: "o título" é ambíguo, porque há dois.
+- 14 não entendidas, entre elas:
+  - "quero que o título fique em negrito";
+  - "negrito no título, por favor";
+  - "troca o texto do botão para Comprar";
+  - "centraliza tudo";
+  - "desfaz o que você fez".
+
+**Causas, pela evidência da D0 e da sondagem**
+1. **Execução sem confiança calibrada.** Palavras ancoradas por coincidência no grafo ("cima" → transform-origin,
+   "igual" → align-items) passam pelos custos inventados. Falta uma probabilidade aprendida, com abstenção.
+2. **Atos de fala indiretos.** Os casos não reconhecidos:
+   - completiva no subjuntivo ("quero que ... fique");
+   - pedido sem verbo ("negrito no título");
+   - queixa como pedido ("o título tá muito pequeno" virou fato);
+   - relato no passado.
+3. **Cobertura lexical do português.** Paráfrases de edição ("engrossar a letra", "destacado", "some com") não
+   chegam a estados.
+4. **Estados que a representação não tem:**
+   - desfazer;
+   - escopo global ("tudo", "o site inteiro");
+   - copiar o estilo de outro elemento ("igual ao primeiro");
+   - mudança relativa sem valor ("um pouco maior").
+5. **Metas vagas** ("mais moderna") precisam virar pergunta, nunca execução.
+6. **O analisador novo da D1 ainda não está ligado ao motor.**
+
+**Nova ordem**
+1. Ligar a D1 ao motor.
+2. Confiança aprendida com abstenção (parte da D3), treinada:
+   - em DocEdit treino (positivos);
+   - em MASSIVE treino (negativos).
+3. Classificador aprendido do ato de fala.
+4. D2 (papéis e frames).
+5. Os estados que faltam, como tipos gerais de estado, nunca por frase.
