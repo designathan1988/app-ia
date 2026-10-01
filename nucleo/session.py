@@ -108,10 +108,12 @@ class Session:
                     if a.ok:
                         a.message += " " + self._learn_from_example(p.verb, u.best, f"{p.text} = {text}")
                     return a
-        if self.dialog.last_constraints and dialogue.is_ellipsis(text) and not self._understood(text):
+        # an elliptical follow-up repeats the last action on another element: only an action on an element can be
+        # repeated that way, and only on an element it did not already touch
+        if self.dialog.last_nodes and dialogue.is_ellipsis(text) and not self._understood(text):
             with langs.use(langs.detect(text)):  # its words are matched in the language they were said in
                 node = dialogue.ellipsis_target(text, self._world())
-            if node is not None:
+            if node is not None and node not in self.dialog.last_nodes:
                 cons = dialogue.repeat_on(self.dialog.last_constraints, self.dialog.last_nodes, node)
                 from .lang.understand import paraphrase
 

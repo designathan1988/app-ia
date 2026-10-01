@@ -350,13 +350,14 @@ def _pieces(tokens: list[Token], pred: Token) -> list[Piece]:
         # a subject is dropped only when it is a pronoun ("você"): a phrase the parser mislabels as subject would
         # otherwise vanish with its whole subtree
         if t.head == pred.i and (t.deprel in ("aux", "punct", "discourse", "vocative", "mark", "cop")
-                                 or t.deprel == "nsubj" and t.upos == "PRON"
+                                 or t.deprel == "nsubj" and t.upos == "PRON" and t.i < pred.i
                                  or t.lemma in MODALS or t.lemma in ("por", "favor") and t.deprel in ("advmod", "obl")):
             for s in _subtree(tokens, t.i):
                 used.add(s.i)
     # heads of the sentence above the predicate (a modal root) are not arguments either
     for t in tokens:
-        if t.i != pred.i and (t.lemma in MODALS or t.upos == "PRON" and t.deprel == "nsubj"):
+        # (a pronoun after the verb of a request is its object, "deixe ele vermelho"; before it, the subject)
+        if t.i != pred.i and (t.lemma in MODALS or t.upos == "PRON" and t.deprel == "nsubj" and t.i < pred.i):
             used.add(t.i)
     pieces: list[Piece] = []
     # a modifier of the verb said before it ("right align the title", "left-align"): an argument of its own

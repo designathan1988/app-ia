@@ -31,7 +31,7 @@ NO = {"nao", "cancela", "cancelar", "esquece", "nenhum", "nenhuma", "n", "deixa"
 ORDINALS = {"primeiro": 0, "primeira": 0, "1": 0, "um": 0, "segundo": 1, "segunda": 1, "2": 1, "dois": 1,
             "terceiro": 2, "terceira": 2, "3": 2, "tres": 2, "quarto": 3, "quarta": 3, "4": 3,
             "first": 0, "one": 0, "second": 1, "two": 1, "third": 2, "three": 2, "fourth": 3}
-ELLIPSIS = {"mesmo", "mesma", "tambem", "igual", "igualmente", "same", "too", "also", "likewise"}
+ELLIPSIS = {"mesmo", "mesma", "tambem", "igual", "igualmente", "agora", "same", "too", "also", "likewise", "now"}
 
 
 @dataclass

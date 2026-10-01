@@ -112,10 +112,12 @@ def _answer(text: str, world, doc: dict, last, lang: str) -> AnswerText | None:
     if kind == "why":
         if last is None:
             return AnswerText("why", _say(lang, "Ainda não fiz nada nesta conversa.", "I have not done anything yet."))
-        steps = "; ".join(last.assumptions) if last.assumptions else _say(lang, "foi o sentido direto das palavras",
-                                                                          "the words meant it directly")
-        return AnswerText("why", _say(lang, f"Fiz «{last.paraphrase}» porque {steps}.",
-                                      f"I did «{last.paraphrase}» because {steps}."))
+        steps = "; ".join(getattr(last, "assumptions", []) or [])
+        if not steps:
+            return AnswerText("why", _say(lang, f"Fiz «{last.paraphrase}»: era o sentido direto das palavras do pedido.",
+                                          f"I did «{last.paraphrase}»: it was what the words of the request said."))
+        return AnswerText("why", _say(lang, f"Fiz «{last.paraphrase}». Como entendi: {steps}.",
+                                      f"I did «{last.paraphrase}». How I understood it: {steps}."))
     tokens = analyse(re.sub(r"\?+\s*$", "", text))
     words = [t for t in tokens if t.upos != "PUNCT"]
     if not words:
