@@ -27,7 +27,7 @@
   "locais": {
     "dentro": ["em", "dentro de", "para dentro de", "para", "a"],
     "depois": ["depois de", "após", "abaixo de", "em seguida a", "para depois de", "embaixo de", "debaixo de",
-               "em baixo de", "para baixo de", "logo depois de", "logo abaixo de"],
+               "em baixo de", "para baixo de", "logo depois de", "logo abaixo de", "entre"],
     "antes": ["antes de", "acima de", "para antes de", "em cima de", "para cima de", "logo antes de", "logo acima de"],
     "inicio": ["no início de", "no começo de", "em o início de", "em o começo de", "para o início de", "para o começo de",
                "em o topo de", "para o topo de", "a o topo de", "em o início", "em o começo", "em o topo"],

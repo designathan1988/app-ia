@@ -21,6 +21,7 @@ PROFILES = {
     "pt": {
         "catalog": "pt-BR.json",
         "of": "de",
+        "between": {"entre"},
         "universal": {"todo", "toda", "todos", "todas", "cada"},
         # the side a spatial preposition names, as property labels say it ("acima de" -> superior)
         "sides": {"antes": "superior", "depois": "inferior"},
@@ -48,6 +49,7 @@ PROFILES = {
     "en": {
         "catalog": "en.json",
         "of": "of",
+        "between": {"between"},
         "from": "from",
         "universal": {"all", "every", "each"},
         "sides": {"antes": "top", "depois": "bottom"},
@@ -68,7 +70,8 @@ PROFILES = {
         "copulas": {"be", "become", "get", "stay", "look"},
         # places and value markers, by the place kinds and cases of frames.json
         "locais": {"dentro": ["in", "into", "inside", "to"],
-                   "depois": ["after", "below", "under", "underneath", "beneath", "right after", "right below"],
+                   "depois": ["after", "below", "under", "underneath", "beneath", "right after", "right below",
+                              "between"],
                    "antes": ["before", "above", "on top of", "right before", "right above"],
                    "inicio": ["at the beginning of", "at the start of", "to the beginning of", "to the start of",
                               "at the top of", "to the top of", "at the top", "at the beginning"],

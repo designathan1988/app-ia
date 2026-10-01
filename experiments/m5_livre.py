@@ -300,6 +300,41 @@ FIFTH = [
 ]
 
 
+# sixth round, written after the fifth round's fixes and run once before any change
+SIXTH = [
+    ("pode colocar o botão em negrito?", S("font-weight", "bold", "b")),
+    ("preciso que o título fique maior", "perguntar"),
+    ("muda o texto do parágrafo pra Olá mundo", {"kind": "field", "field": "text", "value": "Olá mundo"}),
+    ("a cor do título tem que ser vermelha", S("color", "red", "t")),
+    ("deixa o título vermelho e o botão azul", "perguntar"),
+    ("põe o título em negrito e itálico", "perguntar"),
+    ("alinha tudo à esquerda", "perguntar"),
+    ("apaga o primeiro parágrafo", {"kind": "removed", "id": "p"}),
+    ("apaga a última imagem", {"kind": "removed", "id": "i"}),
+    ("esconde todos os botões", C("element.toggleHidden", "b")),
+    ("duplica o último botão", C("element.duplicate", "b")),
+    ("coloca uma imagem entre o título e o parágrafo", {"kind": "added", "type": "image", "parent": "s"}),
+    ("move a imagem pra cima", C("element.moveUp", "i")),
+    ("leva o botão pra baixo", C("element.moveDown", "b")),
+    ("deixa a fonte do parágrafo com 18px", S("font-size", "18px", "p")),
+    ("o fundo da seção deve ser branco", S("background-color", "white", "s")),
+    ("bota um título escrito Promoções na seção", {"kind": "added", "type": "heading", "parent": "s"}),
+    ("renomeia o botão pra CTA", {"kind": "field", "field": "name", "value": "CTA"}),
+    ("can you put the title in italics?", S("font-style", "italic", "t")),
+    ("i need the paragraph to be centered", S("text-align", "center", "p")),
+    ("the section background should be white", S("background-color", "white", "s")),
+    ("make the first paragraph bold", S("font-weight", "bold", "p")),
+    ("delete the last image", {"kind": "removed", "id": "i"}),
+    ("hide all the buttons", C("element.toggleHidden", "b")),
+    ("insert an image between the title and the paragraph", {"kind": "added", "type": "image", "parent": "s"}),
+    ("move the image up", C("element.moveUp", "i")),
+    ("set the paragraph font to 18px", S("font-size", "18px", "p")),
+    ('add a heading that says "Sale" to the section', {"kind": "added", "type": "heading", "parent": "s"}),
+    ("rename the button CTA", {"kind": "field", "field": "name", "value": "CTA"}),
+    ("whatever", "perguntar"),
+]
+
+
 def matches(c: dict, expected: dict) -> bool:
     return all(c.get(k) == v for k, v in expected.items())
 
@@ -348,3 +383,6 @@ if __name__ == "__main__":
     t = time.time()
     c = run(True, FIFTH)
     print("quinta rodada:", c, f"de {len(FIFTH)} em {time.time() - t:.1f}s")
+    t = time.time()
+    c = run(True, SIXTH)
+    print("sexta rodada:", c, f"de {len(SIXTH)} em {time.time() - t:.1f}s")

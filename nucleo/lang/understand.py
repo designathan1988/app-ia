@@ -246,9 +246,11 @@ def _predicate(tokens: list[Token]) -> Token | None:
     roots = [t for t in tokens if t.head == 0]
     # a copular clause ("the title should be bold", "o título está vermelho"): UD makes the predicate adjective the
     # root and hangs the copula on it; the request is the state, and the copula is its verb
-    for r in roots:
-        cop = next((t for t in tokens if t.head == r.i and t.deprel == "cop"), None)
-        if cop is not None and r.upos in ("ADJ", "NOUN", "PROPN"):
+    for r in roots + [t for t in tokens if t not in roots]:
+        # (the parser also labels a copula as an auxiliary or a passive one: "tem que ser vermelha", "to be centered")
+        cop = next((t for t in tokens if t.head == r.i and (t.deprel == "cop" or t.deprel in ("aux", "aux:pass") and
+                    any(c in COPULAS for c in [t.lemma] + morph_lemmas(t.form, "V")))), None)
+        if cop is not None and r.upos in ("ADJ", "NOUN", "PROPN", "VERB"):
             cop.lemma = next((c for c in COPULAS if c in morph_lemmas(cop.form, "V")), cop.lemma)
             return cop
     pred = next((t for t in roots if t.upos in ("VERB", "AUX") and t.lemma not in MODALS
@@ -535,7 +537,8 @@ def _reference(piece: Piece, world: World, skip: int = 0) -> tuple[list[str], fl
         if said and of_type:
             k = said[0]
             if -len(of_type) <= k < len(of_type):
-                return [of_type[k]], COST["referente_por_tipo"], [], explained + 1
+                ordinal_at = next(i for i, t in enumerate(piece.words[skip:]) if fold(t.form.lower()) in ordinals)
+                return [of_type[k]], COST["referente_por_tipo"], [], max(explained, ordinal_at + 1)
         if len(of_type) == 1:
             return of_type, COST["referente_por_tipo"] + type_cost, [], explained
         universal = langs.profile()["universal"]
@@ -816,14 +819,18 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
         value_frame = next(f for f in FRAMES["quadros"] if f.get("valor_rotulado"))
         rs = _value_readings(value_frame, subject + pieces, world)
         # "o texto do botão vai ser 'X'": a field of an element is the subject, the value is said after the copula
-        field_frames = [f for f in FRAMES["quadros"] if f["objeto"].startswith("campo:")]
+        field_frames = [f for f in FRAMES["quadros"] if f["objeto"].startswith("campo:") or f["id"] == "estilo"]
+        # the complement of a copula is the value: "deve ser branco", "should be white"
+        mark = FRAMES["valor_casos"][1]
+        valued = [Piece((mark,), q.words, q.det) if not q.case and q.words and q.words[0].i > pred.i else q
+                  for q in pieces]
         if subject:
             # the words before the copula read as if after it: "o texto do botão vai ser X" ~ "ser o texto do botão X"
             # (unless the parser already left them among the arguments: a copula over a noun root)
             have = {t.i for q in pieces for t in q.words}
             subj_pieces = [] if {t.i for t in before} & have else                 _pieces([pred] + [t for t in tokens if t.i < pred.i and t.upos != "AUX"], pred)
             for f in field_frames:
-                rs += _frame_readings(f, subj_pieces + pieces, world)
+                rs += _frame_readings(f, subj_pieces + valued, world)
         for r in rs:
             r.verb = pred.lemma
         return rs + _light_verb_readings(pred, pieces, world)
@@ -836,6 +843,18 @@ def _readings_for(tokens: list[Token], pred: Token, world: World) -> list[Readin
     from . import preferences
 
     extra = _command_readings(pred.lemma, pieces, world, in_frame=not base_cost)
+    mover = next(f for f in FRAMES["quadros"] if f["id"] == "mover")
+    if _in_frame(pred.lemma, mover) or base_cost:
+        # "leva o botão pra baixo", "joga a imagem pra cima": a verb of moving and a direction that completes the
+        # label of a command ("Mover para baixo"); the label's own verb need not be the one said
+        directional = [cv for v in langs.frame_verbs("mover", langs.current()) for cv in command_verbs.table().get(v, [])
+                       if cv.rest]
+        seen = set()
+        for cv in directional:
+            if cv.command in seen:
+                continue
+            seen.add(cv.command)
+            extra += _command_readings(pred.lemma, pieces, world, in_frame=True, verbs=[cv])
     if base_cost:
         extra += _verb_value_readings(pred.lemma, pieces, world)
         extra += _dictionary_readings(pred.lemma, pieces, world)
@@ -1366,6 +1385,16 @@ def _prior(prop: str, node_type: str | None) -> float:
     return cost
 
 
+def _first_conjunct(words: list) -> list:
+    """The words before "e"/"and" ("entre o título e o parágrafo" -> o título)."""
+    out = []
+    for t in words:
+        if t.upos == "CCONJ":
+            break
+        out.append(t)
+    return out
+
+
 def _descends(node: str, ancestor: str, world: World) -> bool:
     n = world.nodes[node]["parent"]
     while n is not None:
@@ -1598,7 +1627,9 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                 kind, skip = _place(q.case, q)
                 if kind is None:
                     continue
-                ref, c, n, ex = _reference(q, world, skip)
+                between = q.case[-1:] and q.case[-1] in langs.profile().get("between", set())
+                ref, c, n, ex = _reference(Piece(q.case, _first_conjunct(q.words) if between else q.words, q.det),
+                                           world, skip)
                 if not ref:
                     continue
                 if len(ref) > 1:
@@ -1607,7 +1638,7 @@ def _frame_readings_core(f: dict, pieces: list[Piece], world: World) -> list[Rea
                 cost += c
                 notes += n
                 used.add(j)
-                explained[j] = skip + ex
+                explained[j] = len(q.lemmas) if between else skip + ex  # ("entre X e Y": the second is a bound)
                 place_found = True
                 parent, index = _placement(kind, node, world)
                 break
