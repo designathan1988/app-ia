@@ -1,5 +1,18 @@
 # Instruções para o Claude (repositório nucleo)
 
+## Papel atual (desde 2026-10-01): revisor do Codex
+- A implementação passou para o **Codex**. As instruções dele estão em `AGENTS.md` e `docs/codex/`:
+  `especificacao.md` (a especificação do usuário, que governa), `estado.md`, `progresso.md` (diário do Codex) e
+  `prompt_inicial.md`.
+- O Claude **revisa**, não implementa. A cada revisão:
+  - `git log` e `git diff` desde a anterior;
+  - integridade: `experiments/a1/congelado.json` intacto, TEST só no portão, sem injeção do ouro;
+    `experiments/a1/auditoria.py` limpo; grep de regras linguísticas novas;
+  - conferir os números do diário.
+
+  O veredito vai em `docs/codex/revisao.md`, com commit próprio e push.
+- Sem treinos nem testes longos durante as revisões.
+
 ## Leia antes de continuar
 - **Memória do trabalho em curso:**
   `C:\Users\jonathanrodriguesti\.claude\projects\C--Codex-Shared-IA\memory\project-plano-d.md`.
