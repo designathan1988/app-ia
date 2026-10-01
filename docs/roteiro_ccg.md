@@ -156,3 +156,29 @@ Apresento isso antes de seguir. Nenhuma regra à mão entra para passar um port�
   - repetir a forma nova;
   - afirmar um fato e perguntar sobre ele.
 - **Testes externos** (DocEdit, MASSIVE, UD): só no portão final, uma vez.
+
+
+## Registro (2026-10-01): replicação no GeoQuery, só como prova auxiliar
+
+Por ordem do usuário, o GeoQuery e o MATIS deixam de ser objetivo do projeto. São só evidência técnica de que o
+mecanismo (`nucleo/lang/ccg/`: lógica λ tipada, combinadores CCG, divisão por unificação de ordem superior, léxico
+fatorado, IBM Model 1, aprendizado online) funciona.
+
+**Resultado obtido**
+- Teste de fumaça: 60 pares de treino, 2 épocas, 30 frases de teste do Geo880.
+  - P 85,7 / R 60,0 / F1 70,6.
+  - 1 s de treino.
+- Execução completa (597 pares): na época 1, a derivação correta foi encontrada em 593 de 597 frases. Foram 1.263
+  lexemas e 480 moldes, em 71 s.
+- A execução foi interrompida na época 2, a pedido do usuário, para voltar ao builder.
+- Otimizações medidas no caminho: memória das combinações e das cadeias de caracteres, 3,2× mais rápido.
+
+**O que vem agora:** o roteiro segue pela ordem do usuário. Primeiro a A1 no builder:
+- `ActionSchema` extraído automaticamente;
+- IR independente de língua;
+- listador e ranqueador de ações;
+- corpus TRAIN/DEV/TEST do próprio aplicativo;
+- critério: ação correta no Top-K em ≥ 95% do TEST, com Top-1/3/5 e resultados por categoria;
+- simulação em sandbox do builder.
+
+Depois: composição (CCG sobre a IR), grounding, diálogo e execução.
