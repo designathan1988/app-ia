@@ -122,6 +122,7 @@ class Context:
     salient: tuple = ()
     topic_prop: tuple | None = None
     new_count: int = 0
+    created: tuple = ()  # (id, node) of the elements earlier clauses created: they exist for the later ones
 
 
 CONTEXT_COST = 0.5  # an element or property taken from the discourse, not said in the clause
@@ -879,25 +880,29 @@ def _world_with(world, ctx: Context):
     salient element is the one a pronoun points to."""
     from .understand import World
 
-    return World(dict(world.nodes), list(ctx.salient) or list(world.selection), world.layer)
+    nodes = dict(world.nodes)
+    nodes.update(dict(ctx.created))
+    return World(nodes, list(ctx.salient) or list(world.selection), world.layer)
 
 
 def _after(cands: list, ctx: Context, world) -> Context:
     """The discourse after a clause: what it acted on is salient; an element it created exists from now on."""
-    salient, topic, n = ctx.salient, ctx.topic_prop, ctx.new_count
+    salient, topic, n, created = ctx.salient, ctx.topic_prop, ctx.new_count, ctx.created
     for c in cands:
         for k in c.constraints:
             if k["kind"] == "added":
                 n += 1
                 nid = f"$novo{n}"
-                world.nodes[nid] = {"name": None, "type": k["type"], "parent": k.get("parent"), "index": 0,
-                                    "children": [], "flags": {}, "styles": {}}
+                node = {"name": k.get("name"), "type": k["type"], "parent": k.get("parent"), "index": 0,
+                        "children": [], "flags": {}, "styles": {}}
+                world.nodes[nid] = node
+                created = created + ((nid, node),)
                 salient = (nid,)
             elif k.get("id"):
                 salient = (k["id"],)
             if k["kind"] == "style":
                 topic = ("propriedade", k["property"])
-    return Context(salient, topic, n)
+    return Context(salient, topic, n, created)
 
 
 def interpretations(text: str, world, ctx: Context | None = None, courtesy: bool = False) -> list[Interpretation]:

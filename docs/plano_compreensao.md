@@ -337,6 +337,43 @@ Os rótulos das rodadas 3–6 foram escritos para o motor antigo, que foi ajusta
 foi medida limpa antes das correções. Duas expectativas foram corrigidas, porque o significado é inequívoco:
 "negrito e itálico" quer os dois estilos, não uma pergunta.
 
+### Portões medidos em 2026-10-01
+- **Regressão:** passou. Novo 252 contra antigo 246; ≥ em todos os conjuntos; 0 errados.
+- **Bateria M5** (669 pedidos sobre cenários do builder, julgados pelo `matchDocument` do próprio builder):
+  passou.
+
+  | Motor | Acerto | Erro silencioso | Tempo |
+  |---|---|---|---|
+  | Antigo | 92,4% | 0 | 65 s |
+  | Novo | 92,5% | 0 | 406 s |
+
+  O novo partiu de 62,9% e 27 erros silenciosos. As classes corrigidas foram:
+  - camada (estado e breakpoint);
+  - rótulo mais longo e rótulo exato;
+  - extras do elemento criado;
+  - interlocutor;
+  - decimais na divisão de frases;
+  - literais de função CSS;
+  - propriedades W3C alcançáveis (não abreviações de longhands do builder);
+  - atributos pelo manifesto;
+  - palavras-chave W3C como valor;
+  - nomes de elementos são referências.
+- **Conjunto congelado** (88 itens, medido uma vez): **NÃO passou.**
+
+  | Motor | Certo | Perguntou | Errado |
+  |---|---|---|---|
+  | Antigo | 58 | 28 | 2 |
+  | Novo | 63 | 20 | **5** |
+
+  A primeira tentativa quebrou: o elemento criado numa frase não passava para a seguinte (marcador `$novo`). Só
+  essa quebra estrutural foi corrigida antes da medida. Nenhum ajuste foi feito pelos itens do conjunto.
+- **Consequência:** a troca (C6) não acontece; o motor antigo continua em uso.
+- **Próximo passo:**
+  1. Rodada 7 de desenvolvimento, nova e escrita antes de qualquer correção, com o tipo de material do congelado:
+     parágrafos, discurso, afirmações, inglês e pedidos ambíguos que devem ser perguntados.
+  2. Medição limpa e correção por classe.
+  3. Novo conjunto congelado (v2, com hash novo) para o próximo portão. O v1 já foi visto em parte.
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz
