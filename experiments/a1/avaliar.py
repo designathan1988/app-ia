@@ -186,12 +186,17 @@ def train(ranker: Ranker, items, epochs: int, sandbox) -> dict:
             if ep == epochs - 1:
                 stats["gold_generated_last_epoch"] += all(g in {c.canonical() for c in ranked} for g in golds)
             wrong = [c for c in ranked if c.canonical() not in golds]
+            generated = {c.canonical() for c in ranked}
             for g in (it[3] or [None]):
-                gf = ranker.gold(cx, g)
+                gf = ranker.gold(cx, g, ranked)
                 ranker.learn_pairs(cx, g)
-                if wrong and ranker.score(wrong[0].full) >= ranker.score(gf):
+                missing = (g.canonical() if g is not None else "NONE") not in generated
+                # early update (Collins & Roark 2004): also when the search lost the gold
+                # (with a margin: the gold must win by at least 1, so ties and near ties are learned from)
+                if wrong and (missing or ranker.score(wrong[0].full) + 1.0 > ranker.score(gf)):
                     ranker.update(gf, wrong[0].full)
                     stats["updates"] += 1
+                    stats["early_updates"] += missing
     ranker.average()
     stats["train_items"] = len(items)
     return dict(stats)
@@ -203,7 +208,8 @@ def interpret(ranker: Ranker, text: str, lang: str, pg: Page, disc: Discourse):
     cx = ranker.context(text, lang, pg, disc)
     gen = ranker.generate(cx)
     order_gen = [c.canonical() for c in gen]
-    return order_gen, ranker.rank(cx, gen)
+    ranked = ranker.rank(cx, gen)
+    return order_gen, ranked, ranker.decode(cx, ranked)
 
 
 def score_item(ranker, it, sandbox, pg=None, disc=None, gold=None) -> dict:
@@ -211,7 +217,7 @@ def score_item(ranker, it, sandbox, pg=None, disc=None, gold=None) -> dict:
     gold = gold if gold is not None else g
     if pg is None:
         pg, disc = context(it, sandbox)
-    order_gen, ranked = interpret(ranker, text, lang, pg, disc)
+    order_gen, ranked, chosen = interpret(ranker, text, lang, pg, disc)
     order = [c.canonical() for c in ranked]
     golds = [a.canonical() for a in gold] or ["NONE"]
     res = {"text": text, "lang": lang, "cats": cats.split(), "gold": golds, "n_cands": len(order_gen)}
@@ -219,10 +225,9 @@ def score_item(ranker, it, sandbox, pg=None, disc=None, gold=None) -> dict:
         res[f"cand@{k}"] = all(x in order_gen[:max(k, len(golds))] for x in golds)
         res[f"rank@{k}"] = all(x in order[:max(k, len(golds))] for x in golds)
     res["cand@all"] = all(x in order_gen for x in golds)
-    chosen = ranked[:len(golds)]
-    res["pred_ir"] = [c.canonical() for c in chosen]
-    res["ir"] = sorted(golds) == sorted(res["pred_ir"])
-    plan = ir.Plan(tuple(c.action for c in chosen if c.action is not None))
+    res["pred_ir"] = [c.ir() for c in chosen]
+    res["ir"] = sorted(golds) == sorted(c.canonical() for c in chosen)
+    plan = ir.Plan(tuple(c.action for c in chosen if c.action is not None and not c.action.negated))
     want = dispatches(ir.Plan(tuple(gold)), pg, disc)
     got = dispatches(plan, pg, disc)
     res["action"] = want is not None and got == want
@@ -320,8 +325,8 @@ def run_dialogs(ranker, sandbox, end_to_end: bool) -> dict:
             it = (lang, page, text, g, "dialogo", None)
             rows.append(score_item(ranker, it, sandbox, pg, disc, g))
             if end_to_end:
-                ranked = interpret(ranker, text, lang, pg, disc)[1]
-                plan = ir.Plan(tuple(c.action for c in ranked[:len(g) or 1] if c.action is not None))
+                chosen = interpret(ranker, text, lang, pg, disc)[2]
+                plan = ir.Plan(tuple(c.action for c in chosen if c.action is not None and not c.action.negated))
             else:
                 plan = ir.Plan(tuple(g))
             done += dispatches(plan, pg, disc) or []
