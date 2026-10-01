@@ -114,6 +114,21 @@ def _named(texts, world) -> list:
     return out
 
 
+def _default_name(nid: str, world) -> bool:
+    """The element still has the name the editor gives (its type's label, maybe with a number: "Parágrafo 2"): the
+    word that matches it is the type word, which does not single the element out ("o título" with two titles)."""
+    import re
+
+    node = world.nodes.get(nid) or {}
+    name = re.sub(r"\s+\d+$", "", node.get("name") or "")
+    labels = {fold(e.label.lower()) for e in lexicon.load() if e.kind == "tipo" and e.id == node.get("type")}
+    from .lexicon import _load
+
+    for lang in ("pt", "en"):
+        labels |= {fold(e.label.lower()) for e in _load(lang) if e.kind == "tipo" and e.id == node.get("type")}
+    return bool(name) and fold(name.lower()) in labels
+
+
 def _name_key(text: str) -> tuple:
     """A name as folded words, contractions expanded and articles left out ("Texto do cartão" -> texto de cartao)."""
     return tuple(w for w in _words(text) if w)
@@ -153,6 +168,8 @@ def _cross_named(m: Mention, world) -> list:
         stop = set(langs.profile(other)["articles"]) | {fold(langs.profile(other)["of"])}
     out = []
     for nid, n in world.nodes.items():
+        if _default_name(nid, world):
+            continue
         words = [w for w in _name_key(n["name"] or "") if w not in stop]
         if not words:
             continue
@@ -218,8 +235,8 @@ def references(m: Mention, world, restrict: bool = True) -> list[Den]:
     if m.new:
         return []  # something said to be new has no referent
     texts = [literal_value(t.form) for t in m.words if t.i not in {x.i for _, a in m.attached for x in a.words}]
-    names = _named(texts + m.names, world)
-    phrase = _phrase_names(m, world)
+    names = [n for n in _named(texts + m.names, world) if not _default_name(n, world)]
+    phrase = [(n, ws) for n, ws in _phrase_names(m, world) if not _default_name(n, world)]
     cross_cost = 0.0
     if phrase:
         names = [nid for nid, _ in phrase]

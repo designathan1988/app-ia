@@ -31,6 +31,7 @@ from .tokenize import is_literal
 from .values import fold
 
 RIVAL_MARGIN = 1.0
+UNLIKELY = 2.0  # a property this improbable for the element, reached by one clue only, is confirmed first
 CONSTRUCTION = 1.5  # a meaning the construction gives, not the verb (caused motion, insertion): Goldberg
 MEANINGFUL_UNUSED = 4.5  # a word with a meaning that the reading ignores: never executed silently
 UNUSED = 0.5  # a word that grounds to nothing
@@ -52,6 +53,7 @@ class Cand:
     ambiguous: list = field(default_factory=list)
     unknown_verb: bool = False
     ask_value: tuple | None = None  # (node, property): a change of amount with no current value to start from
+    uncertain: bool = False  # one weak clue only (a value named by the verb alone, for an unlikely property)
     parts: dict = field(default_factory=dict)  # where the cost comes from (to explain a reading)
 
 
@@ -277,6 +279,9 @@ def _style(p, args, ev, world, ctx=None, tokens=()) -> list[Cand]:
                         break
             c = Cand("style", [] if ask else cons, cost, explained, notes, list(nodes) if t.ambiguous else [])
             c.ask_value = ask
+            # a value named only by the verb ("arredondar": arredondado = round) for a property unlikely on this
+            # element is a single weak clue: confirmed before it is done
+            c.uncertain = va is None and v.kind == "val" and prior >= UNLIKELY
             c.parts = {"valor": v.cost, "alvo": t_cost, "propriedade_a_priori": prior,
                        "verbo": ev.kinds.get("style", 9.0), "propriedade_dita": pd.cost if pd is not None else 0.0,
                        "varias": cost - (v.cost + t_cost + prior + ev.kinds.get("style", 9.0) +
@@ -1019,7 +1024,9 @@ def _coordinated(sentence: str) -> list[str]:
     out, verb = [], None
     for part in parts:
         text = " ".join(t.form for t in part)
-        has_verb = any(t.upos in ("VERB", "AUX") and t.deprel.split(":")[0] in ("root", "conj") for t in part)
+        # (a verb by its tag, or by the lexicon when it knows the word only as a verb: "renomeie")
+        has_verb = any(t.upos in ("VERB", "AUX") and t.deprel.split(":")[0] in ("root", "conj") or
+                       alternatives.categories(t.form, langs.current()) == frozenset({"VERB"}) for t in part)
         if has_verb:
             verb = next((t.form for t in part if t.upos in ("VERB", "AUX")), verb)
         elif verb is not None:
@@ -1084,7 +1091,7 @@ def understand(text: str, world, lang: str | None = None, ctx: Context | None = 
                     parts.append((seg, seg_its))
                     total += seg_its[0].cost
                     c2 = seg_its[0].context or c2
-                if not parts or its and total >= its[0].cost:
+                if not parts or its and its[0].cost <= u.LIMIT and total >= its[0].cost:
                     continue
                 if chosen_split is not None and total >= chosen_split[1]:
                     continue
@@ -1154,6 +1161,9 @@ def _decide(text, its, world, lang):
             return u.Understanding(text, tokens, rs, "executar",
                                    langs.msg("unknown_verb_guess", what=para, verb=rs[0].verb), lang)
         return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
+    if any(c.uncertain for c in best.cands):
+        why = ""
+        return u.Understanding(text, tokens, rs, "perguntar", langs.msg("confirm", why=why, what=para), lang)
     ask = next((c.ask_value for c in best.cands if c.ask_value), None)
     if ask:
         node, prop = ask
@@ -1174,3 +1184,35 @@ def _decide(text, its, world, lang):
 
 def _effect(constraints: list) -> tuple:
     return tuple(sorted(repr(sorted(c.items())) for c in constraints))
+
+
+def understand_request(text: str, world, by: str = "usuario", lang: str | None = None):
+    """What the application calls (plan C6): a definition the user teaches ("blorfar significa ...") is learned;
+    a verb the user taught is read through its definition; everything else is understood by this engine."""
+    u = _u()
+    lang = lang or langs.detect(text)
+    with langs.use(lang):
+        tokens = u.analyse(text)
+        taught = u._definition(tokens, text, world, by)
+        if taught is not None:
+            taught.lang = lang
+            return taught
+        pred = u._predicate(tokens)
+        if pred is not None and not u._in_frame(pred.lemma):
+            definitions = learned_verbs()
+            for cand in [pred.lemma] + u._regular_infinitives(pred.form):
+                if cand in definitions:
+                    rest = " ".join(t.form for t in tokens if t.i > pred.i and t.upos != "PUNCT")
+                    body = definitions[cand]["definicao"]
+                    out = understand(f"{body} de {rest}" if rest else body, world, lang)
+                    out.text = text
+                    if out.decision == "executar":
+                        out.message = f"{out.message} (pois «{cand}» = «{body}»)"
+                    return out
+    return understand(text, world, lang)
+
+
+def learned_verbs() -> dict:
+    from . import learned
+
+    return learned.verbs()

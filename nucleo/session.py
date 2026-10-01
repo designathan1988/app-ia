@@ -18,7 +18,8 @@ from .builder.planner import Planner
 from types import SimpleNamespace
 
 from .lang import dialogue, langs, learned
-from .lang.understand import FRAMES, World, gapped_clauses, split_clauses, understand
+from .lang.interpret import understand_request as understand  # the rebuilt engine (plan C6)
+from .lang.understand import FRAMES, World
 
 
 def low_priority() -> None:
@@ -55,17 +56,10 @@ class Session:
         if reply is not None:
             self.history.append(reply)
             return reply
-        clauses = split_clauses(text)
-        if len(clauses) == 1 and clauses[0] != text.strip():
-            text_alone = clauses[0]  # courtesy left out
-            return self._ask_one(text_alone)
-        if len(clauses) <= 1:
-            gapped = gapped_clauses(text)
-            if not gapped or self._understood(text):
-                return self._ask_one(text)
-            if not all(self._understood(c) for c in gapped):
-                return self._ask_one(text)
-            clauses = gapped  # "X e Y" read as "verbo X e verbo Y", since the whole was not understood as one
+        # the engine reads the whole text: its sentences, clauses, courtesy and gapping, in order, with what each
+        # makes salient; all the changes are then carried out together (atomic)
+        return self._ask_one(text)
+        clauses = [text]
         start = self.state
         done = []
         for c in clauses:
@@ -113,7 +107,7 @@ class Session:
                     return a
         # an elliptical follow-up repeats the last action on another element: only an action on an element can be
         # repeated that way, and only on an element it did not already touch
-        if self.dialog.last_nodes and dialogue.is_ellipsis(text) and not self._understood(text):
+        if self.dialog.last_nodes and dialogue.is_ellipsis(text):
             with langs.use(langs.detect(text)):  # its words are matched in the language they were said in
                 node = dialogue.ellipsis_target(text, self._world())
             if node is not None and node not in self.dialog.last_nodes:
@@ -159,8 +153,11 @@ class Session:
     def _ask_one(self, text: str) -> Answer:
         world = self._world()
         u = understand(text, world)
-        if u.decision == "aprendido":
-            a = Answer(text, u.decision, u.message, [], True)
+        if u.decision in ("aprendido", "fato", "cortesia"):
+            # learned, noted as information, or only talk: answered, nothing to change
+            msg = u.message if u.decision == "aprendido" else langs.msg(
+                "noted" if u.decision == "fato" else "welcome", langs.detect(text))
+            a = Answer(text, u.decision, msg, [], True)
             self.history.append(a)
             return a
         if u.decision != "executar":
@@ -181,6 +178,71 @@ class Session:
         return a
 
     def _carry_out(self, text: str, u) -> Answer:
+        cons = list(u.best.constraints)
+        placeholders = any(str(c.get(k, "")).startswith("$novo") for c in cons for k in ("id", "parent"))
+        kinds = {c["kind"] == "command" for c in cons}
+        if placeholders or len(kinds) > 1:
+            return self._carry_out_in_steps(text, u)
+        return self._carry_out_one(text, u)
+
+    def _carry_out_in_steps(self, text: str, u) -> Answer:
+        """A text whose changes are of several kinds (commands and states), or that changes an element it creates
+        itself ("insira uma seção e renomeie a seção para Topo"): carried out in order, a step per run of one kind
+        and after each creation; the created element's real id replaces its placeholder ($novoN). All or nothing."""
+        start, cmds, mapping, created = self.state, [], {}, 0
+        groups, cur = [], []
+        for c in u.best.constraints:
+            if cur and (c["kind"] == "command") != (cur[-1]["kind"] == "command"):
+                groups.append(cur)
+                cur = []
+            cur.append(c)
+            if c["kind"] == "added":
+                groups.append(cur)
+                cur = []
+        if cur:
+            groups.append(cur)
+        for g in groups:
+            g = [{k: (mapping.get(v, v) if k in ("id", "parent") else v) for k, v in c.items()} for c in g]
+            if any(str(c.get(k, "")).startswith("$novo") for c in g for k in ("id", "parent")):
+                self.state = start
+                a = Answer(text, "sem_plano", langs.msg("no_plan", langs.detect(text), what=u.message), [], False)
+                self.history.append(a)
+                return a
+            before = set(self._node_ids())
+            sub = SimpleNamespace(best=SimpleNamespace(constraints=g, verb=getattr(u.best, "verb", ""),
+                                                       frame=getattr(u.best, "frame", "")), message=u.message,
+                                  lang=getattr(u, "lang", None))
+            a = self._carry_out_one(text, sub)
+            self.history.pop()
+            if not a.ok:
+                self.state = start
+                self.history.append(a)
+                return a
+            cmds += a.commands
+            for c in g:
+                if c["kind"] == "added":
+                    created += 1
+                    new = [n for n in self._node_ids() if n not in before]
+                    if new:
+                        mapping[f"$novo{created}"] = new[0]
+        a = Answer(text, "executado", u.message, cmds, True)
+        self.history.append(a)
+        return a
+
+    def _node_ids(self) -> list:
+        doc = self.document()["document"]
+        out = []
+
+        def walk(n):
+            out.append(n["id"])
+            for c in n.get("children", []):
+                walk(c)
+
+        for page in doc.get("pages", []):
+            walk(page["tree"])
+        return out
+
+    def _carry_out_one(self, text: str, u) -> Answer:
         if any(str(c.get("type", "")).startswith("estrutura:") for c in u.best.constraints):
             return self._build_structure(text, u)
         if any(c["kind"] == "command" for c in u.best.constraints):

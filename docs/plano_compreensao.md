@@ -374,6 +374,50 @@ foi medida limpa antes das correções. Duas expectativas foram corrigidas, porq
   2. Medição limpa e correção por classe.
   3. Novo conjunto congelado (v2, com hash novo) para o próximo portão. O v1 já foi visto em parte.
 
+### Rodada 7, congelado v2 e troca (C6)
+- **Rodada 7** (`experiments/rodada7.py`, escrita antes de medir):
+
+  | Medida | Novo | Antigo |
+  |---|---|---|
+  | Limpa | 40/13/3 | 32/19/5 |
+  | Depois das correções por classe | 53/3/0 | — |
+
+  As classes corrigidas foram:
+  - nomes de várias palavras e entre línguas (conceitos compartilhados dos WordNets);
+  - identidade na restrição;
+  - cortesia como leitura;
+  - elipse do verbo (gapping);
+  - detecção de língua que ignora nomes;
+  - sujeito sem preposição;
+  - palavra de classe aberta etiquetada como preposição;
+  - literais de função CSS.
+- **Congelado v2** (`experiments/congelado2.py`, 71 itens numa página nova, hash `1bf134f9…` registrado antes de
+  rodar), medido uma vez:
+
+  | Motor | Certo | Perguntou | Errado |
+  |---|---|---|---|
+  | Antigo | 52 | 16 | 3 |
+  | Novo | **60** | **8** | 3 |
+
+  O novo é melhor que o antigo, com o mesmo número de erros.
+- **Portão §4.4 atingido:**
+  - conjuntos atuais ≥ e 0 errados (252 contra 244, depois da correção de duas expectativas de coordenação);
+  - bateria M5: 92,8% contra 92,4%, 0 erros silenciosos;
+  - congelado v2 melhor.
+- **C6 feito:** a sessão e o assistente usam `interpret.understand_request`.
+  - As definições ensinadas e os verbos aprendidos são tratados antes do motor.
+  - O texto inteiro vai ao motor, que separa frases e orações.
+  - Execução em etapas atômicas, com o id real do elemento criado substituindo o marcador `$novoN`.
+  - "fato" e "cortesia" são respondidos sem mudança.
+  - A elipse ("o mesmo no …") é tentada antes do motor.
+  - Um elemento com o nome padrão do seu tipo é nomeado pela palavra do tipo.
+  - Um valor nomeado só pelo verbo, numa propriedade improvável para o elemento, é confirmado antes.
+- **Falta (honesto):**
+  - os 3 erros do congelado v2, acima da meta de 0 (§4.3), que serão atacados com uma rodada nova, não pelo v2;
+  - o código antigo (14 geradores, `_pieces`) ainda existe, e o motor novo ainda usa ajudantes dele (`_prior`,
+    `_placement`, `paraphrase`);
+  - o motor novo é cerca de 7 vezes mais lento que o antigo (0,7 s contra 0,1 s por pedido na bateria).
+
 ## 6. Limites honestos
 - A forma lógica é tão boa quanto a árvore; a religação local reduz, mas não elimina, os erros de análise.
 - O vocabulário vem do grafo e do dicionário. Palavras e sentidos que nenhuma fonte liga ao que a máquina faz

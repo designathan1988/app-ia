@@ -255,7 +255,7 @@ MESSAGES = {
         "which": "Qual deles: {names}?", "did_you_mean": "Você quer dizer {options}?", "or": " ou ",
         "confirm": "Não tenho certeza{why}: entendi «{what}». É isso? (sim/não)",
         "unknown_verb_guess": "{what} (não conheço «{verb}»; entendi pelo resto da frase)",
-        "nothing_done": "Certo, nada foi feito.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
+        "nothing_done": "Certo, nada foi feito.", "noted": "Anotado.", "welcome": "Por nada.", "no_plan": "Entendi «{what}», mas não achei comandos que façam isso.",
         "learned": "Aprendi: «{verb}» = «{body}».", "same_again": "O mesmo: {what}",
         "part_failed": "Nada foi feito: na parte «{part}»: {why}",
         "ask_amount": "{prop} de «{name}» não tem valor definido para eu aumentar ou diminuir: qual valor? "
@@ -272,7 +272,7 @@ MESSAGES = {
         "which": "Which one: {names}?", "did_you_mean": "Do you mean {options}?", "or": " or ",
         "confirm": "I am not sure{why}: I understood «{what}». Is that right? (yes/no)",
         "unknown_verb_guess": "{what} (I did not know «{verb}»; I understood it from the rest of the sentence)",
-        "nothing_done": "OK, nothing was done.", "no_plan": "I understood «{what}», but found no commands that do it.",
+        "nothing_done": "OK, nothing was done.", "noted": "Noted.", "welcome": "You are welcome.", "no_plan": "I understood «{what}», but found no commands that do it.",
         "learned": "Learned: «{verb}» = «{body}».", "same_again": "The same: {what}",
         "part_failed": "Nothing was done: in the part «{part}»: {why}",
         "ask_amount": "The {prop} of «{name}» has no value set for me to make bigger or smaller: which value? "

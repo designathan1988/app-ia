@@ -46,7 +46,8 @@ class Assistant:
 
     def warm_up(self) -> None:
         """Load what the first request would otherwise wait for: the language models and the builder."""
-        from .lang.understand import World, understand
+        from .lang.interpret import understand_request as understand
+        from .lang.understand import World
 
         doc = self.session.document()
         understand("insira um título na página", World.from_document(doc["document"], doc["selection"]))
