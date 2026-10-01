@@ -4,6 +4,41 @@ O veredito mais recente fica no topo. Correções marcadas **EXIGIDO** vêm ante
 
 ---
 
+## Revisão 3 (2026-10-01, 16:20): ritmo e próxima fase
+**Veredito:** o trabalho está correto, mas **lento demais**. Há 25 minutos não há commit, e o ganho já medido
+(consistência: cand@10 de 86,7 para 95,0) continua fora da árvore.
+
+**O que vi:**
+- Determinismo resolvido na causa:
+  - empates ordenados em `concepts.meanings`, na evidência, nas âncoras e em `slot_ev`;
+  - duas execuções do DEV idênticas;
+  - `test_a1_determinism.py` passando.
+- Nada commitado ainda: `concepts.py`, `evidencia.py`, `acoes_ranker.py` e o teste estão só na árvore.
+- Integridade ok: conjuntos congelados intactos, TEST intocado, nenhuma regra nova.
+
+**EXIGIDO, nesta ordem e sem desvio:**
+1. **Agora:** commit e push do determinismo, com o teste. Não espere a medida em curso.
+2. Aplique a consistência treino/inferência, meça o DEV uma vez, faça commit e push.
+3. **Prazo para o DEV: 2 horas** depois do item 2.
+   - Ataque só mecanismos que passem no critério de aceite.
+   - Ao fim do prazo, vá ao **portão da A1** de qualquer jeito.
+   - Escreva `relatorio_a1.md` com os números reais, passando ou não.
+4. **Depois do portão, se passar:**
+   - **Medida em frases escritas por outras pessoas**, uma vez: DocEdit dev (en, tipo de ação, roteiro O3) e
+     MASSIVE dev pt/en (execuções erradas, O4), com adaptador para o motor novo. É regra permanente do usuário que
+     a medida principal use conjuntos externos. O corpus A1 foi escrito pelo mesmo autor do TRAIN e **não prova**
+     compreensão da língua de outras pessoas.
+   - **Ligação experimental na web**, para o usuário poder testar:
+     - `understand_request` usa o motor novo, mantendo a interface;
+     - executa só acima de um limiar calibrado no DEV;
+     - abaixo dele, pergunta mostrando as 2 ou 3 melhores leituras;
+     - a escolha do usuário vira exemplo de treino (A4 adiantada; o resto da A2 e da A3 continua depois);
+     - o motor antigo fica atrás de uma opção, para comparação.
+
+     Só então diga ao usuário que ele pode testar, explicando o que funciona e o que não funciona.
+
+---
+
 ## Revisão 2 (2026-10-01, 16:15): aplicação da Revisão 1 em andamento, sem commit novo
 **Veredito:** no caminho certo. O achado mais importante até agora ainda não foi commitado.
 
