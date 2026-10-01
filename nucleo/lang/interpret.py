@@ -49,6 +49,7 @@ class Cand:
     notes: list = field(default_factory=list)
     ambiguous: list = field(default_factory=list)
     unknown_verb: bool = False
+    ask_value: tuple | None = None  # (node, property): a change of amount with no current value to start from
 
 
 # -- the arguments ------------------------------------------------------------------------------------------------
@@ -76,7 +77,8 @@ def _themes(p: lf.Predicate, args: list[Arg]) -> list[tuple[Arg, gr.Den]]:
     """The element(s) the predicate is about: the object of an event, else its subject (a copular, obligation or
     passive clause: "o botão tem que ficar verde")."""
     out = []
-    for role in ("obj", "subj"):
+    # (the recipient of a giving verb is what the state is about: "give the section a white background")
+    for role in ("iobj", "obj", "subj"):
         for a in args:
             if a.role == role and a.case == "" or a.role == role and role == "subj":
                 out += [(a, d) for d in a.of("ref")]
@@ -102,8 +104,10 @@ def _style(p, args, ev, world) -> list[Cand]:
     from .values import _builder_properties
 
     builder = _builder_properties()
-    values_ = [(a, d) for a in args for d in a.of("val", "lit", "measure")
+    values_ = [(a, d) for a in args for d in a.of("val", "lit", "measure", "cmp")
                if a.role in ("result", "attr", "obj", "obl", "adv") and (_value_case(a.case) or a.role != "obl")]
+    if ev.cmp:
+        values_.append((None, gr.Den("cmp", ev.cmp, 0.0, frozenset({p.head.i}))))
     for pr in ev.pairs:
         values_.append((None, gr.Den("val", (pr,), 0.0, frozenset({p.head.i}))))
     # a property said, or the text of an element ("o texto do botão branco": the owner's text)
@@ -147,6 +151,8 @@ def _style(p, args, ev, world) -> list[Cand]:
             elif v.kind in ("lit", "measure") and said is not None:
                 lit = v_lit if v.kind == "measure" else v.data
                 options += _literal_options(said, lit, ntype)
+            elif v.kind == "cmp":
+                options += _comparative_options(said, ntype)
             if ev.props and any(q in ev.props for q, _, _ in options):
                 # the verb's own meaning is about properties ("alinhar", "align": alignment): one of them
                 options = [o for o in options if o[0] in ev.props]
@@ -170,6 +176,9 @@ def _style(p, args, ev, world) -> list[Cand]:
             chosen = [o for o in options if o[2] == best]
             prop, value, prior = chosen[0]
             bp, st = world.layer
+            ask = None
+            if v.kind == "cmp":
+                value, ask = _scaled(world, nodes[0], prop, v.data)
             cons = [{"kind": "style", "id": n, "breakpoint": bp, "state": st, "property": prop,
                      "value": u._as_keyword(value, prop)} for n in nodes]
             explained = set(v.words) | set(t.words) | ({p.head.i} if "style" in ev.kinds else set()) | \
@@ -197,8 +206,55 @@ def _style(p, args, ev, world) -> list[Cand]:
                                   "value": u._as_keyword(val, q)} for n in nodes]
                         explained |= set(v2.words) | {t.i for t in va.mention.words if t.upos == "CCONJ"}
                         break
-            out.append(Cand("style", cons, cost, explained, notes, list(nodes) if t.ambiguous else []))
+            c = Cand("style", [] if ask else cons, cost, explained, notes, list(nodes) if t.ambiguous else [])
+            c.ask_value = ask
+            out.append(c)
     return out
+
+
+COMPARATIVE_STEP = 1.25  # one step of the usual type scale (a major third)
+NUMERIC = ("length", "length-percentage", "number", "integer")
+
+
+def _comparative_options(said, ntype) -> list:
+    """The amount a comparative changes: the property said if it is an amount, else an amount whose label contains
+    it ("a fonte maior": tamanho da fonte); with none said, the element's size (its text's size for a text
+    element, its width otherwise)."""
+    u = _u()
+    from .values import _builder_properties
+
+    builder = _builder_properties()
+    if said is None:
+        _, contents = u._property_facts()
+        return [("font-size" if contents.get(ntype) == "text" else "width", None, 0.5)]
+    kind, pid = said
+    ids = list(pid) if kind == "lista" else [pid]
+    out = [(q, None, u._prior(q, ntype)) for q in ids if builder.get(q, {}).get("valueType") in NUMERIC]
+    if out:
+        return out
+    for q in ids:
+        entry = next((e for e in lexicon.load() if e.kind == "propriedade" and e.id == q and e.lemmas != (q,)), None)
+        if entry is None:
+            continue
+        n = len(entry.lemmas)
+        out += [(e.id, None, u._prior(e.id, ntype) + 0.3) for e in lexicon.load()
+                if e.kind == "propriedade" and e.id != q and builder.get(e.id, {}).get("valueType") in NUMERIC and
+                any(e.lemmas[i:i + n] == entry.lemmas for i in range(len(e.lemmas) - n + 1))]
+    return out
+
+
+def _scaled(world, node, prop, direction):
+    """The new value one step up or down from the element's current one; (None, (node, prop)) when the document
+    does not say the current value (then the number is asked)."""
+    import re
+
+    current = ((world.nodes[node].get("styles") or {}).get(world.layer[0]) or {}).get(world.layer[1], {}).get(prop)
+    m = re.fullmatch(r"(-?\d+(?:\.\d+)?)(px|rem|em|%)", str(current or ""))
+    if m is None:
+        return None, (node, prop)
+    n, unit = float(m.group(1)), m.group(2)
+    new = round(n * (COMPARATIVE_STEP if direction > 0 else 1 / COMPARATIVE_STEP), 2 if unit in ("rem", "em") else 0)
+    return f"{int(new) if unit in ('px', '%') else new}{unit}", None
 
 
 def _side_words(args, va, ta):
@@ -253,6 +309,13 @@ def _literal_options(said, lit, ntype) -> list:
     return out
 
 
+def _same_frame(verb: str, ev) -> bool:
+    """Whether a command's label verb is in a structural frame the sentence's verb also evokes (both move)."""
+    u = _u()
+    states = {gr.STATE_OF_FRAME.get(f["id"]) for f in u.FRAMES["quadros"] if u._in_frame(verb, f)}
+    return bool(states & ({k for k, c in ev.kinds.items() if c < 1.0} - {"style", "command"}))
+
+
 def _participle_lemma(t) -> str | None:
     if langs.current() == "en":
         return langs.english_lemma(t.form, "VERB") if t.form.lower().endswith(("ed", "en")) else None
@@ -267,6 +330,13 @@ def _commands(p, args, ev, world, sentence_lemmas) -> list[Cand]:
 
     out = []
     sources = [(cv, {p.head.i} | set(ev.particles), ev.kinds.get("command", 9.0), None) for cv in ev.commands]
+    # a moving verb with the rest of a moving command's label is that command ("leva o botão pra baixo": Mover
+    # para baixo)
+    for verbs in command_verbs.table().values():
+        for cv in verbs:
+            if cv.rest and cv not in ev.commands and cv.command not in FRAME_COMMANDS.values() and \
+                    _same_frame(cv.verb, ev):
+                sources.append((cv, {p.head.i}, 0.5, None))
     for a in args:
         # the state a command leaves, said as its participle ("deixa as imagens escondidas", "keep it hidden")
         if a.role in ("result", "attr") and a.mention.head.upos in ("VERB", "ADJ"):
@@ -291,7 +361,7 @@ def _commands(p, args, ev, world, sentence_lemmas) -> list[Cand]:
         if (cv.command, noun is None) in seen:
             continue
         seen.add((cv.command, noun is None))
-        if cv.rest and not set(cv.rest) <= set(sentence_lemmas.values()):
+        if cv.rest and cv.command not in ev.whole and not set(cv.rest) <= set(sentence_lemmas.values()):
             continue
         rest_tokens = {i for i, lem in sentence_lemmas.items() if lem in cv.rest} if cv.rest else set()
         if noun is not None:
@@ -415,11 +485,7 @@ def _content_tokens(p: lf.Predicate) -> set:
 
 
 def _meaningful(t) -> bool:
-    if is_literal(t.form):
-        return True
-    if grounding.direct(t.form) or lexicon.match((lexicon.lemma_of(t.form),), gr.KINDS_LABELLED):
-        return True
-    return any(m.cost <= 1.0 for m in grounding.meanings(t.form))
+    return gr.meaningful(t)
 
 
 def _unexplained(p, cand: Cand, tokens) -> tuple[float, list]:
@@ -454,6 +520,7 @@ def readings(p: lf.Predicate, world, tokens) -> list[Cand]:
                 c.explained |= {p.head.i}
                 cands.append(c)
     for c in cands:
+        c.explained |= set(ev.particles)  # the particle is part of the verb ("jogar fora", "get rid of")
         extra, left = _unexplained(p, c, tokens)
         c.cost += extra
         if left:
@@ -528,6 +595,12 @@ def understand(text: str, world, lang: str | None = None):
                 return u.Understanding(text, tokens, rs, "executar",
                                        langs.msg("unknown_verb_guess", what=para, verb=rs[0].verb), lang)
             return u.Understanding(text, tokens, rs, "perguntar", langs.msg("ask_unknown_verb", verb=rs[0].verb), lang)
+        ask = next((c.ask_value for c in best.cands if c.ask_value), None)
+        if ask:
+            node, prop = ask
+            return u.Understanding(text, tokens, rs, "perguntar",
+                                   langs.msg("ask_amount", prop=u._label("propriedade", prop).lower(),
+                                             name=world.nodes[node]["name"] or node), lang)
         amb = rs[0].ambiguous
         if amb:
             names = ", ".join(f"«{world.nodes[n]['name']}»" for n in amb[:6] if n in world.nodes)

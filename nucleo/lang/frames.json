@@ -20,7 +20,7 @@
      "verbos": ["renomear", "chamar", "nomear"]},
     {"id": "estilo_por_valor", "resultado": "style", "objeto": "no", "valor_rotulado": true,
      "verbos": ["colocar", "deixar", "pôr", "tornar", "alinhar", "botar", "mudar", "ajustar", "posicionar", "jogar",
-                "definir", "fazer", "mover", "mandar", "levar", "passar", "trocar", "alterar"]},
+                "definir", "fazer", "mover", "mandar", "levar", "passar", "trocar", "alterar", "dar"]},
     {"id": "atributo", "resultado": "field:attributes", "objeto": "atributo", "valor": true,
      "verbos": ["definir", "mudar", "alterar", "trocar", "colocar", "pôr", "deixar", "configurar"]}
   ],

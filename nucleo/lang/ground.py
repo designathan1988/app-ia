@@ -122,7 +122,8 @@ def _types(tokens) -> list:
         if out:
             return out
     for t in tokens:
-        if t.upos in ("NOUN", "PROPN", "X", "ADJ") and not is_literal(t.form):
+        # (a proper name is no common noun: "Promoção" names something, it is not the type "progress")
+        if t.upos in ("NOUN", "X", "ADJ") and not is_literal(t.form) and not (t.form[:1].isupper() and t.i > 1):
             for m in grounding.meanings(t.form, "N"):
                 if m.kind == "tipo" and m.cost <= 1.5:
                     out.append((m.target, m.cost, frozenset({t.i})))
@@ -281,7 +282,7 @@ def values(m: Mention) -> list[Den]:
             out.append(Den("lit", literal_value(t.form), 0.0, frozenset({t.i})))
     words = [t for t in content if t.upos in ("NOUN", "PROPN", "ADJ", "X", "NUM")]
     if not any(d.kind == "lit" for d in out) and len(words) > 1 and len(words) == len(content) and not m.attached \
-            and not any(ix.get(fold(lexicon.lemma_of(t.form))) or grounding.direct(t.form) for t in words):
+            and not any(meaningful(t) for t in words):
         # a phrase as said ("Olá mundo"): a text, when none of its words means something else
         out.append(Den("lit", " ".join(t.form for t in words), 1.0, frozenset(t.i for t in words)))
     if m.names and not any(d.kind == "lit" for d in out):
@@ -295,6 +296,14 @@ def values(m: Mention) -> list[Den]:
     ix = value_index()
     if m.det == "indefinite":
         content = []  # a phrase that introduces something ("uma cópia", "a copy") is not a value said
+    prof = langs.profile()
+    for t in list(content):
+        # a comparative ("maior", "bigger"): a change relative to the element's own current value, never a CSS
+        # keyword ("larger" is relative to the parent)
+        low = fold(t.form.lower())
+        if low in prof["more"] or low in prof["less"]:
+            out.append(Den("cmp", 1 if low in prof["more"] else -1, 0.0, frozenset({t.i})))
+            content.remove(t)
     for t in content:
         if is_literal(t.form):
             continue
@@ -366,6 +375,15 @@ def place(case: str, m: Mention, world) -> list[Den]:
     cw = _case_words(case)
     out = []
     head = fold(m.head.form.lower())
+    own = tuple(fold(t.form.lower()) for t in _content(m))
+    if len(own) > 1 and place_relation(own):
+        # a place said with its whole locution ("logo depois do título", "right after the title")
+        rel = place_relation(own)
+        anchor = next((r for c2, a in m.attached for r in references(a, world)[:1]), None)
+        if anchor is not None:
+            ws = frozenset(t.i for t in _content(m)) | anchor.words | \
+                {t.i for _, a in m.attached for t in a.words if t.upos == "ADP"}
+            out.append(Den("place", (rel, anchor.data), anchor.cost, ws, (), anchor.ambiguous))
     # a place noun or adverb with its own anchor ("no fim da seção", "antes do título", "at the end of the card")
     rel = place_relation(cw + (head,)) or place_relation((head,))
     if rel:
@@ -417,6 +435,18 @@ def ground(m: Mention, world) -> list[Den]:
     return uniq
 
 
+def meaningful(t) -> bool:
+    """A word that means something to the machine: a literal, a label, or a near meaning in the concept graph."""
+    from .values import index as value_index
+
+    if is_literal(t.form):
+        return True
+    if grounding.direct(t.form) or lexicon.match((lexicon.lemma_of(t.form),), KINDS_LABELLED) or \
+            value_index().get(fold(lexicon.lemma_of(t.form))):
+        return True
+    return any(m.cost <= 1.0 for m in grounding.meanings(t.form))
+
+
 # -- predicates ---------------------------------------------------------------------------------------------------
 @dataclass
 class Evidence:
@@ -431,13 +461,15 @@ class Evidence:
     light: bool = False  # a light, copular or volitive verb: the arguments decide
     lemma: str = ""
     particles: frozenset = frozenset()
+    whole: set = field(default_factory=set)  # commands the verb means as a whole ("descer" = "mover para baixo")
+    cmp: int = 0  # a verb of more or less ("aumentar", "increase"): +1 / -1
 
 
 STATE_OF_FRAME = {"existir": "added", "remover": "removed", "mover": "moved", "estilo": "style",
                   "estilo_por_valor": "style", "texto": "field:text", "escrever": "field:text", "nome": "field:name",
                   "renomear": "field:name", "atributo": "field:attributes"}
 ALL_STATES = ("style", "command", "added", "removed", "moved", "field:text", "field:name", "field:attributes")
-GRAPH_LIMIT = 2.0
+GRAPH_LIMIT = 2.5
 
 
 def _verb_candidates(p: Predicate, tokens) -> list[tuple[str, frozenset]]:
@@ -485,11 +517,34 @@ def _from_lexicon(lem: str, ev: Evidence) -> None:
         ev.commands.append(cv)
         ev.kinds["command"] = 0.0
     if not ev.kinds:
-        # a verb named after a value's participle ("centralizar": centralizado) - only for verbs outside the
-        # frames: a frame verb's participle ("deixado") names nothing about the change
-        for pr in u._verb_value_pairs(lem):
+        # a verb whose participle names a value: the state it leaves ("centralizar": centralizado -> text-align:
+        # center; "underline": underlined) - only for verbs outside the frames: a frame verb's participle
+        # ("deixado") names nothing about the change
+        pairs = list(u._verb_value_pairs(lem))
+        for form in participles(lem):
+            pairs += [g.target for g in grounding.meanings(form, "A") if g.kind == "valor" and g.cost == 0.0
+                      and g.target not in pairs]
+        for pr in pairs:
             ev.pairs.append(pr)
             ev.kinds["style"] = 0.0
+
+
+@lru_cache(maxsize=4096)
+def _participles(lem: str, lang: str) -> tuple:
+    """The past participle of a verb, by the regular formation, kept only when the morphology confirms it is that
+    verb's participle (MorphoBr; the English lemmatizer)."""
+    if lang == "en":
+        cands = [lem + "ed", lem + "d", lem[:-1] + "ied", lem + lem[-1:] + "ed"]
+        return tuple(c for c in cands if langs.english_lemma(c, "VERB") == lem)
+    from .morph import analyses
+
+    stem, end = lem[:-2], lem[-2:]
+    cands = [stem + "ado"] if end == "ar" else [stem + "ido"] if end in ("er", "ir") else []
+    return tuple(c for c in cands if any(le == lem and tg.startswith("V+PTPST") for le, tg in analyses(c)))
+
+
+def participles(lem: str) -> tuple:
+    return _participles(lem, langs.current())
 
 
 def _from_graph(lem: str, ev: Evidence, only_props: bool = False) -> None:
@@ -500,6 +555,7 @@ def _from_graph(lem: str, ev: Evidence, only_props: bool = False) -> None:
     from . import command_verbs
     from .builder_commands import FRAME_COMMANDS
 
+    frame_of_command = {c: f for f, c in FRAME_COMMANDS.items()}
     for g in grounding.meanings(lem, "V"):
         if g.cost > GRAPH_LIMIT:
             continue
@@ -507,11 +563,18 @@ def _from_graph(lem: str, ev: Evidence, only_props: bool = False) -> None:
             ev.props[g.target] = min(ev.props.get(g.target, 9.0), g.cost)
         if only_props:
             continue
-        if g.kind == "comando":
+        if g.kind == "comando" and g.target in frame_of_command:
+            # the command that performs a frame's change ("erase" ~ Excluir): the frame's state
+            st = STATE_OF_FRAME.get(frame_of_command[g.target])
+            if st:
+                ev.kinds[st] = min(ev.kinds.get(st, 9.0), g.cost)
+        elif g.kind == "comando":
+            # the verb means the command as a whole, label and all ("descer" ~ "Mover para baixo")
             for verbs in command_verbs.table().values():
                 for cv in verbs:
-                    if cv.command == g.target and not cv.rest and cv not in ev.commands and                             cv.command not in FRAME_COMMANDS.values():
+                    if cv.command == g.target and cv not in ev.commands:
                         ev.commands.append(cv)
+                        ev.whole.add(cv.command)
             if ev.commands:
                 ev.kinds["command"] = min(ev.kinds.get("command", 9.0), g.cost)
         elif g.kind in ("verbo", "acao"):
@@ -521,12 +584,24 @@ def _from_graph(lem: str, ev: Evidence, only_props: bool = False) -> None:
                     if st:
                         ev.kinds[st] = min(ev.kinds.get(st, 9.0), g.cost)
         elif g.kind in ("valor", "propriedade", "familia"):
-            ev.kinds["style"] = min(ev.kinds.get("style", 9.0), g.cost + (1.0 if g.kind == "valor" else 0.0))
+            lexical = bool(g.path) and g.path[0][0] in ("sinonimo", "traducao")
+            if g.kind == "valor" and lexical and g.cost <= 1.0:
+                # a synonym or translation that names the value ("grifar" ~ sublinhar -> underline): said as such
+                ev.pairs.append(g.target)
+                ev.kinds["style"] = min(ev.kinds.get("style", 9.0), g.cost)
+            else:
+                ev.kinds["style"] = min(ev.kinds.get("style", 9.0), g.cost + (1.0 if g.kind == "valor" else 0.0))
 
 
 def verb_evidence(p: Predicate, tokens=None) -> Evidence:
     u = _u()
     ev = Evidence(lemma=p.lemma)
+    prof = langs.profile()
+    if fold(p.lemma) in prof["more"] or fold(p.lemma) in prof["less"]:
+        # "aumenta a fonte", "increase the margin": a change of amount, relative to the current value
+        ev.cmp = 1 if fold(p.lemma) in prof["more"] else -1
+        ev.kinds = {"style": 0.0}
+        return ev
     if p.kind == "state" or p.lemma in u.COPULAS or p.lemma in u.MODALS:
         # a copula, or a volitive with no verbal complement ("quero o título azul", "I'd like it in bold"): the
         # state is what the arguments say
