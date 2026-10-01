@@ -1,5 +1,7 @@
 # Plano D: compreensão aprendida e medida fora de mim
 
+> **Revisado em 2026-10-01 pela [auditoria](auditoria.md).** As etapas D2 a D5 da §5 foram substituídas pela §7: gerar todas as ações possíveis e ranquear com um modelo log-linear aprendido. O motivo: a etapa frase → ação não aprendia de nenhum dado.
+
 Este plano substitui o [plano da compreensão](plano_compreensao.md) (etapas C0 a C6). O plano anterior fica como
 registro histórico. A forma lógica, a ancoragem e a abdução que ele construiu continuam sendo a base. O que muda é
 **de onde vem o conhecimento e como se mede**.
@@ -244,3 +246,14 @@ ainda não está fechado: falta o Bosque, e o inglês não foi treinado.
 3. Classificador aprendido do ato de fala.
 4. D2 (papéis e frames).
 5. Os estados que faltam, como tipos gerais de estado, nunca por frase.
+
+## 7. Etapas em vigor (depois da auditoria)
+
+| Etapa | Entrega | Portão |
+|---|---|---|
+| **A1** | **Espaço de ações e gerador de candidatas** (`nucleo/lang/acoes.py`), sobre a página e o catálogo do builder: estilo P=V, texto, nome, adicionar, remover, mover, comando, desfazer, copiar estilo; alvos em elementos e grupos. Sem modelo. | **cobertura**: a ação certa está entre as candidatas em ≥ 95% dos pedidos rotulados (M5, rodadas, congelados); número de candidatas por frase registrado |
+| **A2** | **Dados de treino** (`experiments/externo/dados.py`): enunciados canônicos pt/en gerados das ações e expandidos por PPDB, OpenWordNet-PT e WordNet; DocEdit treino; MASSIVE treino como NENHUMA AÇÃO; as frases rotuladas que escrevi | contagens por fonte e por tipo de ação; nenhuma frase de dev ou teste nos dados |
+| **A3** | **Ranqueador log-linear** p(ação \| frase, página) + NENHUMA AÇÃO + limiar calibrado no dev. O analisador da D1, os papéis e o grafo entram como traços. Os geradores de `interpret.py`, `base.COST`, `LIMIT` e `STATE_OF_FRAME` são removidos. | DocEdit dev: acerto muito acima de 8,6%; execução errada ≤ 0,5%; MASSIVE dev ≤ 0,5%; regressão: os conjuntos antigos sem errados |
+| **A4** | **Aprendizado por interação:** cada escolha numa pergunta de esclarecimento e cada correção atualizam os pesos na hora (SHRDLURN) | curva de aprendizado num fluxo simulado (DocEdit treino); nada esquecido |
+
+A D1 continua: ligar o analisador rotulado como fonte de traços, treinar o inglês e medir o teste UD no portão.
