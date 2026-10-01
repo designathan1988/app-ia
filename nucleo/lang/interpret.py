@@ -721,7 +721,15 @@ def _value_removal(p, args, ev, world) -> list[Cand]:
 
 
 def _css_form(value) -> bool:
-    return isinstance(value, str) and _u()._value_kind(value) in ("length", "number", "color") and         not value.startswith(("'", '"'))
+    """A literal with the form of a CSS value: a length, number or colour, or a CSS function ("skewY(5deg)",
+    "blur(4px)"): a value by its form, so reading it as a text costs."""
+    import re
+
+    if not isinstance(value, str):
+        return False
+    if re.fullmatch(r"[a-zA-Z][\w-]*\(.*\)", value.strip()):
+        return True
+    return _u()._value_kind(value) in ("length", "number", "color") and not value.startswith(("'", '"'))
 
 
 def _fields(p, args, ev, world, ctx=None) -> list[Cand]:
